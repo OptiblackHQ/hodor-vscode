@@ -1,9 +1,11 @@
 import * as vscode from "vscode";
-import { HodorError, Status } from "./api";
+import { HodorError, Status, STATUSES } from "./api";
+import { statusLabel } from "./eventGroups";
 import { CodeActions, DetailsPanel } from "./detailsPanel";
 import { EventTreeProvider } from "./eventTree";
 import { ProjectChoice } from "./projects";
 import { Session } from "./session";
+import { changeStatus } from "./status";
 
 /** Context-menu commands get the tree node; others get the event id. */
 const eventIdOf = (arg: unknown): string | undefined =>
@@ -88,7 +90,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (event) await actions.copyEvent(event.name, language);
       })
     ),
-    vscode.commands.registerCommand("hodor.openInHodor", guarded(async () => actions.openInHodor()))
+    vscode.commands.registerCommand("hodor.openInHodor", guarded(async () => actions.openInHodor())),
+    vscode.commands.registerCommand(
+      "hodor.setStatus",
+      guarded(async (arg?: unknown, wanted?: Status) => {
+        const project = choice.project;
+        const event = tree.getEvent(eventIdOf(arg) || "");
+        if (!project || !event) return;
+        const status =
+          wanted ??
+          (
+            await vscode.window.showQuickPick(
+              STATUSES.map((s) => ({ label: statusLabel(s), description: s === event.status ? "(current)" : "", status: s })),
+              { title: `Status of ${event.name}` }
+            )
+          )?.status;
+        if (!status || status === event.status) return;
+        const result = await changeStatus(session.client, project.id, event, status);
+        if (result.ok) vscode.window.showInformationMessage(`${event.name}: ${statusLabel(status)}`);
+        else vscode.window.showWarningMessage(result.message);
+        if (result.ok || result.reload) await tree.refresh();
+        // Also puts the panel's status select back when the change failed.
+        if (details.eventId === event.id) await details.reload();
+      })
+    )
   );
 
   await choice.restore();
