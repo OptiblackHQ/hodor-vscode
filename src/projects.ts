@@ -28,13 +28,16 @@ export class ProjectChoice implements vscode.Disposable {
     const folders = (vscode.workspace.workspaceFolders || []).map((f) => f.uri.fsPath);
     const wanted = saved?.id || (await readRepoProject(folders));
     if (!wanted) return this.set(undefined, false);
+    let projects;
     try {
-      const found = (await this.session.client.projects()).find((p) => p.id === wanted);
-      if (found) return this.set(found, Boolean(saved));
-      if (saved) vscode.window.showWarningMessage(`You no longer have access to ${saved.name}. Pick another product.`);
+      projects = await this.session.client.projects();
     } catch {
-      // Offline at startup: the tree shows the error; keep nothing picked.
+      // Offline at startup: keep the saved choice for next time.
+      return this.set(undefined, false);
     }
+    const found = projects.find((p) => p.id === wanted);
+    if (found) return this.set(found, Boolean(saved));
+    if (saved) vscode.window.showWarningMessage(`You no longer have access to ${saved.name}. Pick another product.`);
     return this.set(undefined, Boolean(saved));
   }
 
