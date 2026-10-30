@@ -42,12 +42,16 @@ export class EventTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
       this.loadedFor = undefined;
       return this.render();
     }
+    // A slower answer for a product picked earlier must not replace this one.
+    const stale = () => this.choice.project?.id !== project.id;
     try {
       const result = await this.session.client.project(project.id);
+      if (stale()) return;
       this.events = result.events;
       this.loadedFor = project.id;
       this.render();
     } catch (error) {
+      if (stale()) return;
       this.events = [];
       this.render();
       const message = error instanceof HodorError ? error.message : String(error);

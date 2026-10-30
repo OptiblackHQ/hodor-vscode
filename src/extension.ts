@@ -75,7 +75,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<unknow
   );
   context.subscriptions.push(
     details,
-    choice.onDidChange(() => actions.clear()),
+    choice.onDidChange(() => {
+      actions.clear();
+      details.closeIfOtherProject();
+    }),
     vscode.commands.registerCommand(
       "hodor.openEvent",
       guarded(async (arg?: unknown) => {
@@ -95,8 +98,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<unknow
       "hodor.setStatus",
       guarded(async (arg?: unknown, wanted?: Status) => {
         const project = choice.project;
-        const event = tree.getEvent(eventIdOf(arg) || "");
-        if (!project || !event) return;
+        if (!project) {
+          vscode.window.showWarningMessage("Pick a Hodor product first.");
+          return;
+        }
+        const id = eventIdOf(arg) || "";
+        const event = tree.getEvent(id) || details.shownEvent(id);
+        if (!event) {
+          vscode.window.showWarningMessage("This event isn't loaded. Refresh and try again.");
+          return;
+        }
         const status =
           wanted ??
           (

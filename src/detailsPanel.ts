@@ -83,6 +83,7 @@ export class CodeActions {
 export class DetailsPanel implements vscode.Disposable {
   private panel: vscode.WebviewPanel | undefined;
   private event: EventDetails | undefined;
+  private projectId: string | undefined;
 
   constructor(
     private readonly session: Session,
@@ -96,10 +97,21 @@ export class DetailsPanel implements vscode.Disposable {
     return this.panel ? this.event?.id : undefined;
   }
 
+  /** The open event, for status changes when the tree hasn't loaded it. */
+  shownEvent(id: string): EventDetails | undefined {
+    return this.panel && this.event?.id === id ? this.event : undefined;
+  }
+
+  /** Closes the panel when it shows another product's event (product switch, sign-out). */
+  closeIfOtherProject(): void {
+    if (this.panel && this.projectId !== this.choice.project?.id) this.panel.dispose();
+  }
+
   async show(eventId: string): Promise<void> {
     const project = this.choice.project;
     if (!project) return;
     this.event = await this.session.client.event(project.id, eventId);
+    this.projectId = project.id;
     if (!this.panel) {
       this.panel = vscode.window.createWebviewPanel("hodor.event", this.event.name, vscode.ViewColumn.Beside, {
         enableScripts: true,
