@@ -1,0 +1,227 @@
+{
+  "name": "hodor",
+  "displayName": "Hodor",
+  "description": "Your product's tracking plan from Hodor, inside VS Code and Cursor: browse events, copy tracking code, mark events implemented.",
+  "version": "0.1.0",
+  "publisher": "optiblack",
+  "license": "MIT",
+  "author": "Optiblack <dev@optiblack.com>",
+  "homepage": "https://hodor.optiblack.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OptiblackHQ/hodor-vscode.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "analytics",
+    "tracking plan",
+    "mixpanel",
+    "posthog",
+    "rudderstack"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onView:hodor.events"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "hodor",
+          "title": "Hodor",
+          "icon": "media/hodor.svg"
+        }
+      ]
+    },
+    "views": {
+      "hodor": [
+        {
+          "id": "hodor.events",
+          "name": "Events"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "hodor.events",
+        "contents": "Sign in to see your product's tracking plan.\n[Sign in to Hodor](command:hodor.signIn)",
+        "when": "!hodor.signedIn"
+      },
+      {
+        "view": "hodor.events",
+        "contents": "Choose the product this code belongs to.\n[Pick a product](command:hodor.pickProject)",
+        "when": "hodor.signedIn && !hodor.hasProject"
+      }
+    ],
+    "commands": [
+      {
+        "command": "hodor.signIn",
+        "title": "Sign in",
+        "category": "Hodor"
+      },
+      {
+        "command": "hodor.signOut",
+        "title": "Sign out",
+        "category": "Hodor"
+      },
+      {
+        "command": "hodor.pickProject",
+        "title": "Pick product",
+        "category": "Hodor",
+        "icon": "$(project)"
+      },
+      {
+        "command": "hodor.refresh",
+        "title": "Refresh",
+        "category": "Hodor",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "hodor.search",
+        "title": "Search events",
+        "category": "Hodor",
+        "icon": "$(search)"
+      },
+      {
+        "command": "hodor.clearSearch",
+        "title": "Clear search",
+        "category": "Hodor",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "hodor.openEvent",
+        "title": "Open event",
+        "category": "Hodor"
+      },
+      {
+        "command": "hodor.setStatus",
+        "title": "Set status",
+        "category": "Hodor"
+      },
+      {
+        "command": "hodor.copyCode",
+        "title": "Copy code",
+        "category": "Hodor"
+      },
+      {
+        "command": "hodor.openInHodor",
+        "title": "Open in Hodor",
+        "category": "Hodor"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "hodor.search",
+          "when": "view == hodor.events && hodor.hasProject",
+          "group": "navigation@1"
+        },
+        {
+          "command": "hodor.clearSearch",
+          "when": "view == hodor.events && hodor.searching",
+          "group": "navigation@2"
+        },
+        {
+          "command": "hodor.refresh",
+          "when": "view == hodor.events && hodor.hasProject",
+          "group": "navigation@3"
+        },
+        {
+          "command": "hodor.pickProject",
+          "when": "view == hodor.events && hodor.signedIn",
+          "group": "navigation@4"
+        },
+        {
+          "command": "hodor.signOut",
+          "when": "view == hodor.events && hodor.signedIn",
+          "group": "zz"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "hodor.setStatus",
+          "when": "view == hodor.events && viewItem == event",
+          "group": "1@1"
+        },
+        {
+          "command": "hodor.copyCode",
+          "when": "view == hodor.events && viewItem == event",
+          "group": "1@2"
+        },
+        {
+          "command": "hodor.openInHodor",
+          "when": "view == hodor.events && viewItem == event",
+          "group": "1@3"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "hodor.openEvent",
+          "when": "false"
+        },
+        {
+          "command": "hodor.setStatus",
+          "when": "false"
+        },
+        {
+          "command": "hodor.copyCode",
+          "when": "false"
+        },
+        {
+          "command": "hodor.openInHodor",
+          "when": "false"
+        },
+        {
+          "command": "hodor.signIn",
+          "when": "!hodor.signedIn"
+        },
+        {
+          "command": "hodor.signOut",
+          "when": "hodor.signedIn"
+        },
+        {
+          "command": "hodor.pickProject",
+          "when": "hodor.signedIn"
+        },
+        {
+          "command": "hodor.clearSearch",
+          "when": "hodor.searching"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Hodor",
+      "properties": {
+        "hodor.serverUrl": {
+          "type": "string",
+          "default": "https://hodor.optiblack.com",
+          "description": "Hodor server address. Change it only to test against a local Hodor."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:integration": "npm run build && tsc -p test/integration && node out/test/integration/runTest.js",
+    "package": "npm run typecheck && npm run build && vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.20.5",
+    "@types/vscode": "1.85.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.1.0",
+    "esbuild": "^0.28.2",
+    "mocha": "^12.0.3",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
