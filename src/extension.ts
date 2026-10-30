@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { HodorError } from "./api";
+import { EventTreeProvider } from "./eventTree";
 import { ProjectChoice } from "./projects";
 import { Session } from "./session";
 
@@ -33,6 +34,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.commands.registerCommand("hodor.pickProject", guarded((id?: string) => choice.pick(id)))
   );
+
+  const tree = new EventTreeProvider(session, choice);
+  context.subscriptions.push(
+    tree,
+    choice.onDidChange(() => void tree.refresh()),
+    vscode.commands.registerCommand("hodor.refresh", guarded(() => tree.refresh())),
+    vscode.commands.registerCommand(
+      "hodor.search",
+      guarded(async () => {
+        const query = await vscode.window.showInputBox({
+          title: "Search events",
+          prompt: "Matches event names and descriptions",
+          value: tree.currentQuery,
+        });
+        if (query !== undefined) await tree.setQuery(query);
+      })
+    ),
+    vscode.commands.registerCommand("hodor.clearSearch", guarded(() => tree.setQuery("")))
+  );
+
   await choice.restore();
 }
 
