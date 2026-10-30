@@ -22,7 +22,7 @@ const guarded =
     }
   };
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
+export async function activate(context: vscode.ExtensionContext): Promise<unknown> {
   const session = new Session(context);
   context.subscriptions.push(session);
   await session.init();
@@ -117,6 +117,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   await choice.restore();
+
+  // Only for the integration tests: sign in with a token and reach the parts they check.
+  if (process.env.HODOR_TEST === "1") {
+    context.subscriptions.push(
+      vscode.commands.registerCommand("hodor._setTokenForTests", (token: string) => session.setToken(token))
+    );
+    return { session, choice, tree };
+  }
+  return undefined;
 }
 
 export function deactivate(): void {}
