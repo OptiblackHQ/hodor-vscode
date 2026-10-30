@@ -7,7 +7,8 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "outDir": "out",
-    "rootDir": "."
+    "rootDir": ".",
+    "types": ["node", "vscode"]
   },
   "include": ["src", "test/unit"]
 }
