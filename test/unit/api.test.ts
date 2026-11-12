@@ -94,4 +94,21 @@ describe("HodorClient", () => {
     expect(await c.event("p", "e")).toEqual({ id: "e", name: "x" });
     expect((await c.code("p", "go")).file).toBe("package analytics");
   });
+
+  it("opens an AI turn stream, or throws Hodor's message", async () => {
+    const ok = fakeFetch(() => new Response('{"type":"text","text":"Hi"}\n', { status: 200 }));
+    const res = await client(ok.fn).streamPost("/api/cli/projects/p/ai/turn", { messages: [] });
+    expect(await res.text()).toBe('{"type":"text","text":"Hi"}\n');
+    expect(ok.calls[0].init.method).toBe("POST");
+    expect(headers(ok.calls[0]).Authorization).toBe("Bearer hodor_pat_x");
+
+    const off = fakeFetch(() => json(412, { error: "AI is off for this product." }));
+    const error = await client(off.fn).streamPost("/x", {}).catch((e) => e);
+    expect([error.message, error.status]).toEqual(["AI is off for this product.", 412]);
+
+    const onUnauthorized = vi.fn();
+    const ended = await client(fakeFetch(() => json(401, {})).fn, { onUnauthorized }).streamPost("/x", {}).catch((e) => e);
+    expect(ended.status).toBe(401);
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
 });

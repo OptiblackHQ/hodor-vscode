@@ -65,6 +65,14 @@ export interface LoginStart {
   interval: number;
 }
 
+const parseJson = (text: string): any => {
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return null;
+  }
+};
+
 export class HodorError extends Error {
   constructor(message: string, readonly status?: number) {
     super(message);
@@ -92,7 +100,12 @@ export class HodorClient {
     return this.base;
   }
 
-  private async request<T>(method: string, path: string, { body, auth = true }: { body?: unknown; auth?: boolean } = {}): Promise<T> {
+  /** Sends a request and throws Hodor's message for any error status. */
+  private async send(
+    method: string,
+    path: string,
+    { body, auth = true, signal }: { body?: unknown; auth?: boolean; signal?: AbortSignal } = {}
+  ): Promise<Response> {
     const doFetch = this.opts.fetch ?? fetch;
     let res: Response;
     try {
@@ -105,25 +118,28 @@ export class HodorClient {
           ...(auth && this.opts.token ? { Authorization: `Bearer ${this.opts.token}` } : {}),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal,
       });
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) throw error;
       throw new HodorError(`Can't reach Hodor (${this.base}). Check your internet connection.`);
     }
-    const text = await res.text();
-    let data: any = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = null;
+    if (res.ok) return res;
+    if (res.status === 401 && auth) {
+      this.opts.onUnauthorized?.();
+      throw new HodorError("Your Hodor session ended. Sign in again.", 401);
     }
-    if (!res.ok) {
-      if (res.status === 401 && auth) {
-        this.opts.onUnauthorized?.();
-        throw new HodorError("Your Hodor session ended. Sign in again.", 401);
-      }
-      throw new HodorError(data?.error_description || data?.message || data?.error || `Hodor answered ${res.status}.`, res.status);
-    }
-    return data as T;
+    const data = parseJson(await res.text());
+    throw new HodorError(data?.error_description || data?.message || data?.error || `Hodor answered ${res.status}.`, res.status);
+  }
+
+  private async request<T>(method: string, path: string, options: { body?: unknown; auth?: boolean } = {}): Promise<T> {
+    return parseJson(await (await this.send(method, path, options)).text()) as T;
+  }
+
+  /** POSTs and returns the response to read as a stream (the AI chat). */
+  streamPost(path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
+    return this.send("POST", path, { body, signal });
   }
 
   startLogin(clientName: string): Promise<LoginStart> {
