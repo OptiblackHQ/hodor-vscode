@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planCreate, planEdit } from "../../src/edits";
+import { planCreate, planEdit } from "../../src/editPlan";
 
 describe("planEdit", () => {
   const file = "a\n  // signup done\nb\n";
