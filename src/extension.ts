@@ -6,6 +6,8 @@ import { EventTreeProvider } from "./eventTree";
 import { ProjectChoice } from "./projects";
 import { Session } from "./session";
 import { changeStatus } from "./status";
+import { ChatController } from "./chat/controller";
+import { ChatViewProvider } from "./chat/view";
 
 /** Context-menu commands get the tree node; others get the event id. */
 const eventIdOf = (arg: unknown): string | undefined =>
@@ -127,6 +129,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<unknow
     )
   );
 
+  const chat = new ChatController(session, choice, tree);
+  const chatView = new ChatViewProvider(session, choice, chat);
+  context.subscriptions.push(
+    chat,
+    chatView,
+    vscode.window.registerWebviewViewProvider("hodor.chat", chatView, { webviewOptions: { retainContextWhenHidden: true } }),
+    vscode.commands.registerCommand("hodor.newChat", () => chat.reset())
+  );
+
   await choice.restore();
 
   // Only for the integration tests: sign in with a token and reach the parts they check.
@@ -134,7 +145,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<unknow
     context.subscriptions.push(
       vscode.commands.registerCommand("hodor._setTokenForTests", (token: string) => session.setToken(token))
     );
-    return { session, choice, tree };
+    return { session, choice, tree, chat };
   }
   return undefined;
 }

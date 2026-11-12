@@ -24,6 +24,10 @@ export class EventTreeProvider implements vscode.TreeDataProvider<Node>, vscode.
     return this.events.find((e) => e.id === id);
   }
 
+  getEventByName(name: string): EventSummary | undefined {
+    return this.events.find((e) => e.name === name);
+  }
+
   async setQuery(query: string): Promise<void> {
     this.query = query.trim();
     await vscode.commands.executeCommand("setContext", "hodor.searching", Boolean(this.query));

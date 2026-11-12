@@ -1,8 +1,8 @@
 {
   "name": "hodor",
   "displayName": "Hodor",
-  "description": "Your product's tracking plan from Hodor, inside VS Code and Cursor: browse events, copy tracking code, mark events implemented.",
-  "version": "0.1.0",
+  "description": "Your product's tracking plan from Hodor, inside VS Code and Cursor: browse events, copy tracking code, and let the AI chat add events to your code.",
+  "version": "0.2.0",
   "publisher": "optiblack",
   "license": "MIT",
   "author": "Optiblack <dev@optiblack.com>",
@@ -26,7 +26,8 @@
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onView:hodor.events"
+    "onView:hodor.events",
+    "onView:hodor.chat"
   ],
   "contributes": {
     "viewsContainers": {
@@ -43,6 +44,11 @@
         {
           "id": "hodor.events",
           "name": "Events"
+        },
+        {
+          "type": "webview",
+          "id": "hodor.chat",
+          "name": "Chat"
         }
       ]
     },
@@ -112,6 +118,12 @@
         "command": "hodor.openInHodor",
         "title": "Open in Hodor",
         "category": "Hodor"
+      },
+      {
+        "command": "hodor.newChat",
+        "title": "New chat",
+        "category": "Hodor",
+        "icon": "$(add)"
       }
     ],
     "menus": {
@@ -140,6 +152,11 @@
           "command": "hodor.signOut",
           "when": "view == hodor.events && hodor.signedIn",
           "group": "zz"
+        },
+        {
+          "command": "hodor.newChat",
+          "when": "view == hodor.chat",
+          "group": "navigation"
         }
       ],
       "view/item/context": [
@@ -201,6 +218,11 @@
           "type": "string",
           "default": "https://hodor.optiblack.com",
           "description": "Hodor server address. Change it only to test against a local Hodor."
+        },
+        "hodor.ai.autoApply": {
+          "type": "boolean",
+          "default": false,
+          "description": "Apply the chat's code changes right away instead of showing them for review first. Applied changes can be undone with Undo or git."
         }
       }
     }
