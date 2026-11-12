@@ -14,6 +14,7 @@ const MAX_MATCHES = 60;
 const MAX_READ_LINES = 400;
 const MAX_READ_BYTES = 40 * 1024;
 const MAX_LIST = 200;
+const MAX_PROBLEMS = 100;
 
 export const hashText = (text: string): string => crypto.createHash("sha256").update(text).digest("hex");
 
@@ -80,6 +81,37 @@ export class RepoTools {
     const lines = shown.slice(0, MAX_LIST).map((e) => (e.dir ? `${e.rel}/` : e.rel));
     if (shown.length > MAX_LIST) lines.push(`(${shown.length - MAX_LIST} more)`);
     return lines.join("\n") || "(empty folder)";
+  }
+
+  /** Errors and warnings the editor shows for files in the project (or under `scope`). */
+  problems(scope?: string): string {
+    let prefix = "";
+    if (scope) {
+      const resolved = this.guard.resolve(scope);
+      if (!resolved.ok) throw new Error(`Can't check ${scope}: ${resolved.reason}.`);
+      prefix = resolved.rel;
+    }
+    const lines: string[] = [];
+    let total = 0;
+    for (const [uri, diagnostics] of vscode.languages.getDiagnostics()) {
+      if (uri.scheme !== "file") continue;
+      const rel = path.relative(this.root.fsPath, uri.fsPath).split(path.sep).join("/");
+      if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) continue;
+      if (prefix && rel !== prefix && !rel.startsWith(prefix + "/")) continue;
+      if (!this.guard.resolve(rel).ok) continue;
+      for (const d of diagnostics) {
+        if (d.severity > vscode.DiagnosticSeverity.Warning) continue;
+        total++;
+        if (lines.length >= MAX_PROBLEMS) continue;
+        const kind = d.severity === vscode.DiagnosticSeverity.Error ? "error" : "warning";
+        const source = d.source ? ` (${d.source})` : "";
+        lines.push(`${rel}:${d.range.start.line + 1}: ${kind}: ${d.message.split("\n")[0]}${source}`);
+      }
+    }
+    if (!lines.length) {
+      return "No errors or warnings shown in the editor. (The editor only checks files it has analysed; run the build or type check for a full check.)";
+    }
+    return lines.join("\n") + (total > lines.length ? `\n(${total - lines.length} more)` : "");
   }
 
   async read(file: string, startLine = 1, endLine?: number): Promise<{ text: string; rel: string; from: number; to: number }> {

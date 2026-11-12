@@ -11,9 +11,12 @@ import { ProjectChoice } from "../projects";
 import { RepoTools } from "../repoTools";
 import { Session } from "../session";
 import { changeStatus } from "../status";
+import { describeResult, runCommand } from "../commandRunner";
 import { Action, ChatState, initialState, reduce, toolStep } from "./state";
 
-const MAX_REQUESTS = 40;
+const MAX_REQUESTS = 60;
+/** How often live command output is redrawn. */
+const OUTPUT_EVERY_MS = 250;
 
 export class ChatController implements vscode.Disposable {
   private state: ChatState = initialState;
@@ -25,6 +28,8 @@ export class ChatController implements vscode.Disposable {
   private tools: RepoTools | null = null;
   private queue: EditQueue | null = null;
   private stepCount = 0;
+  /** Commands waiting for the developer's Run / Skip, by step id. */
+  private readonly decisions = new Map<string, (run: boolean) => void>();
   private readonly changed = new vscode.EventEmitter<ChatState>();
   readonly onDidChange = this.changed.event;
 
@@ -84,6 +89,7 @@ export class ChatController implements vscode.Disposable {
 
   reset(): void {
     this.stop();
+    this.decideAll(false);
     this.history = [];
     this.lastRequest = null;
     this.tools = null;
@@ -161,7 +167,8 @@ export class ChatController implements vscode.Disposable {
         continue;
       }
       const id = `r${++this.stepCount}`;
-      this.dispatch({ type: "step_start", id, ...toolStep(call.name, call.input) });
+      const command = call.name === "run_command" ? { command: String(call.input.command), commandState: "waiting" as const } : {};
+      this.dispatch({ type: "step_start", id, ...toolStep(call.name, call.input), ...command });
       const result = (content: string, ok = true) => {
         results.push({ type: "tool_result", tool_use_id: call.id, content, ...(ok ? {} : { is_error: true }) });
       };
@@ -177,6 +184,11 @@ export class ChatController implements vscode.Disposable {
         } else if (call.name === "read_file") {
           result((await tools.read(input.path, input.start_line, input.end_line)).text);
           this.dispatch({ type: "step_end", id, ok: true });
+        } else if (call.name === "get_problems") {
+          result(tools.problems(input.path));
+          this.dispatch({ type: "step_end", id, ok: true });
+        } else if (call.name === "run_command") {
+          result(...(await this.command(id, input.command, tools.root.fsPath, signal)));
         } else {
           result(...(await this.change(id, call)));
         }
@@ -187,6 +199,54 @@ export class ChatController implements vscode.Disposable {
       }
     }
     return { results, stopped: signal.aborted };
+  }
+
+  /**
+   * run_command: waits for the developer's Run or Skip (never runs on its own,
+   * even with auto-apply), then runs it in the project folder with live output.
+   */
+  private async command(id: string, command: string, cwd: string, signal: AbortSignal): Promise<[string, boolean]> {
+    const run = await new Promise<boolean>((resolve) => {
+      if (signal.aborted) return resolve(false);
+      this.decisions.set(id, resolve);
+      signal.addEventListener("abort", () => this.decide(id, false), { once: true });
+    });
+    if (!run) {
+      this.dispatch({ type: "command", id, state: "skipped" });
+      this.dispatch({ type: "step_end", id, ok: true, detail: undefined });
+      return [signal.aborted ? "Not run: the developer stopped." : "The developer skipped this command. Don't run it again unless they ask; carry on without it.", !signal.aborted];
+    }
+    this.dispatch({ type: "command", id, state: "running" });
+    let latest: string | undefined;
+    let timer: NodeJS.Timeout | undefined;
+    const result = await runCommand(command, cwd, {
+      signal,
+      onOutput: (all) => {
+        latest = all;
+        timer ??= setTimeout(() => {
+          timer = undefined;
+          this.dispatch({ type: "command", id, state: "running", output: latest });
+        }, OUTPUT_EVERY_MS);
+      },
+    });
+    if (timer) clearTimeout(timer);
+    this.dispatch({ type: "command", id, state: "done", output: result.output });
+    const ok = result.code === 0 && !result.timedOut && !result.stopped;
+    const detail = ok ? undefined : result.stopped ? "Stopped" : result.timedOut ? "Time limit reached" : `Exit code ${result.code}`;
+    this.dispatch({ type: "step_end", id, ok, detail });
+    return [describeResult(result), ok];
+  }
+
+  /** The developer's click on Run (true) or Skip (false). */
+  decide(stepId: string, run: boolean): void {
+    const resolve = this.decisions.get(stepId);
+    if (!resolve) return;
+    this.decisions.delete(stepId);
+    resolve(run);
+  }
+
+  private decideAll(run: boolean): void {
+    for (const id of [...this.decisions.keys()]) this.decide(id, run);
   }
 
   /** propose_edit / create_file: queue it, and apply it now when auto-apply is on. */
@@ -250,6 +310,7 @@ export class ChatController implements vscode.Disposable {
 
   dispose(): void {
     this.stop();
+    this.decideAll(false);
     this.queue?.dispose();
     this.changed.dispose();
   }

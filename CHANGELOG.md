@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- The chat is now a coding agent: any coding task in the open project, with Hodor's tracking plan as its specialty.
+- It decides where each event goes itself instead of asking.
+- Events pasted into the chat (not in Hodor) are implemented in the code.
+- Runs commands (install, build, test) after you click **Run**, with live output; reads VS Code's Problems panel to check its work.
+- Answers are formatted, with **Copy** on code blocks and on each answer.
+
 ## 0.2.0
 
 - AI chat: ask about the tracking plan, or have it add events to your code with Hodor's tracking code. Live progress, review or auto-apply, Stop / Retry / Continue. Uses the product's Claude key through Hodor; the key never reaches the editor.

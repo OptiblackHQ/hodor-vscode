@@ -3,7 +3,9 @@
 
 import { languageLabel } from "../snippet";
 
-export type Icon = "events" | "code" | "search" | "folder" | "read" | "edit" | "status";
+export type Icon = "events" | "code" | "search" | "folder" | "read" | "edit" | "status" | "terminal" | "problems";
+/** A command Claude wants to run: waiting for Run/Skip, running, then done or skipped. */
+export type CommandState = "waiting" | "running" | "done" | "skipped";
 export type EditStatus = "proposed" | "applied" | "skipped" | "failed";
 
 export type Item =
@@ -19,6 +21,9 @@ export type Item =
       line?: number;
       editId?: number;
       editStatus?: EditStatus;
+      command?: string;
+      commandState?: CommandState;
+      output?: string;
     }
   | { kind: "notice"; tone: "error" | "info"; text: string; action?: "retry" | "continue" | "settings" };
 
@@ -34,9 +39,10 @@ export const initialState: ChatState = { items: [], running: false, canContinue:
 export type Action =
   | { type: "user"; text: string }
   | { type: "text"; text: string }
-  | { type: "step_start"; id: string; icon: Icon; label: string; path?: string; line?: number }
+  | { type: "step_start"; id: string; icon: Icon; label: string; path?: string; line?: number; command?: string; commandState?: CommandState }
   | { type: "step_end"; id: string; ok: boolean; detail?: string; editId?: number; editStatus?: EditStatus }
   | { type: "edit"; editId: number; status: EditStatus; detail?: string }
+  | { type: "command"; id: string; state: CommandState; output?: string }
   | { type: "error"; code: string; message: string }
   | { type: "notice"; text: string }
   | { type: "network" }
@@ -66,6 +72,10 @@ export const toolStep = (name: string, input: Record<string, any>): { icon: Icon
       return { icon: "edit", label: `Editing ${input.path}: ${input.summary}`, path: input.path };
     case "create_file":
       return { icon: "edit", label: `Creating ${input.path}: ${input.summary}`, path: input.path };
+    case "run_command":
+      return { icon: "terminal", label: input.reason ? `Run command: ${input.reason}` : "Run command" };
+    case "get_problems":
+      return { icon: "problems", label: input.path ? `Checking problems in ${input.path}` : "Checking problems" };
     default:
       return { icon: "code", label: name };
   }
@@ -105,6 +115,15 @@ export const reduce = (state: ChatState, action: Action): ChatState => {
         items: items.map((item) =>
           item.kind === "step" && item.editId === action.editId
             ? { ...item, editStatus: action.status, ...(action.detail ? { detail: action.detail } : {}) }
+            : item
+        ),
+      };
+    case "command":
+      return {
+        ...state,
+        items: items.map((item) =>
+          item.kind === "step" && item.id === action.id
+            ? { ...item, commandState: action.state, ...(action.output !== undefined ? { output: action.output } : {}) }
             : item
         ),
       };

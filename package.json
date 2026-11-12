@@ -1,8 +1,8 @@
 {
   "name": "hodor",
   "displayName": "Hodor",
-  "description": "Your product's tracking plan from Hodor, inside VS Code and Cursor: browse events, copy tracking code, and let the AI chat add events to your code.",
-  "version": "0.2.0",
+  "description": "Your product's tracking plan from Hodor, inside VS Code and Cursor: browse events, copy tracking code, and an AI coding agent that adds the events to your code.",
+  "version": "0.3.0",
   "publisher": "optiblack",
   "license": "MIT",
   "author": "Optiblack <dev@optiblack.com>",

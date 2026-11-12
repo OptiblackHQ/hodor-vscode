@@ -269,6 +269,47 @@ suite("Hodor extension", () => {
         assert.strictEqual(fs.readFileSync(file(), "utf8"), ORIGINAL);
       });
 
+      test("a command waits for Run, runs in the project with its output, then the agent carries on", async () => {
+        await restore();
+        await setAutoApply(true); // commands never run on their own, even with auto-apply
+        const sent = api.chat.send("FAKE:command check node");
+        const step = await until(() => steps().find((s: any) => s.command && s.commandState === "waiting"), "the command to wait");
+        await new Promise((r) => setTimeout(r, 300));
+        assert.strictEqual(steps().find((s: any) => s.id === step.id).commandState, "waiting");
+        api.chat.decide(step.id, true);
+        await sent;
+        await setAutoApply(false);
+        const done = steps().find((s: any) => s.id === step.id);
+        assert.strictEqual(done.commandState, "done");
+        assert.strictEqual(done.status, "ok");
+        assert.match(done.output, /hello from command/);
+        assert.ok(steps().some((s: any) => s.label === "Checking problems" && s.status === "ok"));
+        assert.strictEqual(api.chat.current.items.at(-1).text, "Done. The command ran.");
+      });
+
+      test("a skipped command is not run and the agent is told", async () => {
+        await restore();
+        const sent = api.chat.send("FAKE:command check node");
+        const step = await until(() => steps().find((s: any) => s.command && s.commandState === "waiting"), "the command to wait");
+        api.chat.decide(step.id, false);
+        await sent;
+        const done = steps().find((s: any) => s.id === step.id);
+        assert.strictEqual(done.commandState, "skipped");
+        assert.strictEqual(done.output, undefined);
+        assert.strictEqual(api.chat.current.items.at(-1).text, "Done. The command ran.");
+      });
+
+      test("Stop while a command waits answers it as not run", async () => {
+        await restore();
+        const sent = api.chat.send("FAKE:command check node");
+        await until(() => steps().find((s: any) => s.command && s.commandState === "waiting"), "the command to wait");
+        api.chat.stop();
+        await sent;
+        assert.strictEqual(api.chat.current.items.at(-1).text, "Stopped. Changes made so far are kept.");
+        await api.chat.send("FAKE:chat still there?");
+        assert.ok(!api.chat.current.items.some((i: any) => i.kind === "notice" && i.tone === "error"), JSON.stringify(api.chat.current.items));
+      });
+
       test("when Claude's connection drops, the chat offers Retry", async () => {
         await restore();
         await api.chat.send("FAKE:slow");

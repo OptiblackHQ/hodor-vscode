@@ -8,6 +8,7 @@ import { ProjectChoice } from "../projects";
 import { Session } from "../session";
 import { ChatController } from "./controller";
 import { renderChatPage } from "./html";
+import { parseMarkdown } from "../markdown";
 
 type Mode = "signedOut" | "noProject" | "noFolder" | "ready";
 
@@ -15,6 +16,8 @@ type Message =
   | { type: "ready" | "stop" | "retry" | "continue" | "settings" | "applyAll" | "signIn" | "pickProject" }
   | { type: "send"; text: string }
   | { type: "apply" | "skip" | "diff"; id: number }
+  | { type: "runCommand" | "skipCommand"; id: string }
+  | { type: "copy"; text: string }
   | { type: "open"; path: string; line?: number };
 
 export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
@@ -48,7 +51,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   }
 
   private post(): void {
-    void this.view?.webview.postMessage({ mode: this.mode(), state: this.chat.current });
+    const state = this.chat.current;
+    // Answers go to the page as parsed Markdown blocks; the page draws them as text.
+    const items = state.items.map((item) => (item.kind === "assistant" ? { ...item, blocks: parseMarkdown(item.text) } : item));
+    void this.view?.webview.postMessage({ mode: this.mode(), state: { ...state, items } });
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -80,6 +86,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           return this.chat.skip(message.id);
         case "diff":
           return await this.chat.diff(message.id);
+        case "runCommand":
+          return this.chat.decide(message.id, true);
+        case "skipCommand":
+          return this.chat.decide(message.id, false);
+        case "copy":
+          await vscode.env.clipboard.writeText(String(message.text));
+          vscode.window.setStatusBarMessage("Hodor: copied", 2000);
+          return;
         case "signIn":
           await vscode.commands.executeCommand("hodor.signIn");
           return;

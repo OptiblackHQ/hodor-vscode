@@ -9,7 +9,7 @@ export type ChatMessage = { role: "user" | "assistant"; content: unknown };
 
 export interface PendingTool {
   id: string;
-  name: "search_code" | "list_files" | "read_file" | "propose_edit" | "create_file";
+  name: "search_code" | "list_files" | "read_file" | "propose_edit" | "create_file" | "run_command" | "get_problems";
   input: Record<string, any>;
 }
 

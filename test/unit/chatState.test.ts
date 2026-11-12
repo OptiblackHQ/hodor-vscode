@@ -82,3 +82,18 @@ describe("reduce", () => {
     expect(reduce(s, { type: "reset" })).toEqual(initialState);
   });
 });
+
+describe("commands", () => {
+  it("labels run_command and get_problems", () => {
+    expect(toolStep("run_command", { command: "npm test", reason: "run the tests" })).toEqual({ icon: "terminal", label: "Run command: run the tests" });
+    expect(toolStep("get_problems", {})).toEqual({ icon: "problems", label: "Checking problems" });
+    expect(toolStep("get_problems", { path: "src" }).label).toBe("Checking problems in src");
+  });
+  it("moves a command from waiting to running to done, with its output", () => {
+    let s = reduce(initialState, { type: "step_start", id: "r1", icon: "terminal", label: "Run command", command: "npm test", commandState: "waiting" });
+    s = reduce(s, { type: "command", id: "r1", state: "running" });
+    s = reduce(s, { type: "command", id: "r1", state: "running", output: "1 passed" });
+    s = reduce(s, { type: "command", id: "r1", state: "done" });
+    expect(s.items[0]).toMatchObject({ kind: "step", command: "npm test", commandState: "done", output: "1 passed" });
+  });
+});
