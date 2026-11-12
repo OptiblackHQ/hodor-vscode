@@ -1,4 +1,6 @@
 import * as assert from "assert";
+import * as fs from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
 
 const URL = process.env.HODOR_URL;
@@ -151,10 +153,137 @@ suite("Hodor extension", () => {
       await until(() => api.tree.getChildren().length, "first product back");
     });
 
-    test("sign out clears the product", async () => {
-      await vscode.commands.executeCommand("hodor.signOut");
-      assert.strictEqual(api.session.isSignedIn(), false);
-      assert.strictEqual(api.choice.project, undefined);
+    suite("AI chat (fake Claude)", () => {
+      const WORKSPACE = process.env.HODOR_TEST_WORKSPACE!;
+      const file = () => path.join(WORKSPACE, "src/signup.js");
+      const ORIGINAL = "export function signup() {\n  createAccount();\n  // signup done\n}\n";
+      const steps = () => api.chat.current.items.filter((i: any) => i.kind === "step");
+      const setAutoApply = (on: boolean) =>
+        vscode.workspace.getConfiguration("hodor").update("ai.autoApply", on, vscode.ConfigurationTarget.Global);
+
+      /** Puts the file and signup_completed's status back as they were. */
+      const restore = async () => {
+        const doc = await vscode.workspace.openTextDocument(file());
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(doc.uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), ORIGINAL);
+        await vscode.workspace.applyEdit(edit);
+        await doc.save();
+        await api.tree.refresh();
+        const event = api.tree.getEventByName("signup_completed");
+        if (event.status !== "not started") await api.session.client.setStatus(PROJECT, event.id, "not started", event.version);
+        await api.tree.refresh();
+        api.chat.reset();
+      };
+
+      suiteSetup(async function () {
+        if (!WORKSPACE) this.skip();
+        await vscode.commands.executeCommand("hodor.pickProject", PROJECT);
+        await until(() => api.tree.getEventByName("signup_completed"), "events");
+      });
+
+      test("without a Claude key, the chat says AI is off and links to settings", async () => {
+        await vscode.commands.executeCommand("hodor.pickProject", PROJECT2);
+        await api.chat.send("FAKE:chat how many events?");
+        const last = api.chat.current.items.at(-1);
+        assert.strictEqual(last.text, "AI is off for this product. Ask your product owner to add a Claude key in Hodor settings.");
+        assert.strictEqual(last.action, "settings");
+        await vscode.commands.executeCommand("hodor.pickProject", PROJECT);
+        await until(() => api.tree.getEventByName("signup_completed"), "events");
+      });
+
+      test("auto-apply: adds the event to the code and marks it implemented", async () => {
+        await restore();
+        await setAutoApply(true);
+        await api.chat.send("FAKE:implement add the missing events");
+        assert.strictEqual(api.chat.current.running, false);
+        assert.match(fs.readFileSync(file(), "utf8"), /trackSignupCompleted\(\{ plan: "pro" \}\);\n  \/\/ signup done/);
+        await api.tree.refresh();
+        assert.strictEqual(api.tree.getEventByName("signup_completed").status, "implemented");
+        const labels = steps().map((s: any) => s.label);
+        assert.deepStrictEqual(labels, [
+          'Getting "not started" events from Hodor',
+          'Searching code for "signup"',
+          "Reading src/signup.js",
+          "Getting tracking code (JavaScript (Web))",
+          "Editing src/signup.js: track signup_completed after the account is created",
+          "Marking signup_completed implemented in Hodor",
+        ]);
+        assert.ok(steps().every((s: any) => s.status === "ok"), JSON.stringify(steps()));
+        const text = api.chat.current.items.filter((i: any) => i.kind === "assistant").map((i: any) => i.text).join(" ");
+        assert.match(text, /Added signup_completed/);
+      });
+
+      test("review mode: nothing changes until the developer applies", async () => {
+        await restore();
+        await setAutoApply(false);
+        await api.chat.send("FAKE:implement add the missing events");
+        assert.strictEqual(fs.readFileSync(file(), "utf8"), ORIGINAL);
+        const edit = steps().find((s: any) => s.editId);
+        assert.strictEqual(edit.editStatus, "proposed");
+        await api.chat.applyChange(edit.editId);
+        assert.match(fs.readFileSync(file(), "utf8"), /trackSignupCompleted/);
+        await api.tree.refresh();
+        assert.strictEqual(api.tree.getEventByName("signup_completed").status, "implemented");
+      });
+
+      test("a file changed after the AI read it is not overwritten", async () => {
+        await restore();
+        await setAutoApply(false);
+        await api.chat.send("FAKE:implement add the missing events");
+        const doc = await vscode.workspace.openTextDocument(file());
+        const edit = new vscode.WorkspaceEdit();
+        edit.insert(doc.uri, new vscode.Position(0, 0), "// my own change\n");
+        await vscode.workspace.applyEdit(edit);
+        const proposal = steps().find((s: any) => s.editId);
+        const result = await api.chat.applyChange(proposal.editId);
+        assert.strictEqual(result.status, "failed");
+        assert.strictEqual(result.reason, "the file changed since it was read");
+        assert.ok(doc.getText().startsWith("// my own change"));
+        assert.ok(!doc.getText().includes("trackSignupCompleted"));
+        await vscode.commands.executeCommand("workbench.action.files.revert");
+      });
+
+      test("when Claude's connection drops, the chat offers Retry", async () => {
+        await restore();
+        await api.chat.send("FAKE:slow");
+        const last = api.chat.current.items.at(-1);
+        assert.strictEqual(last.text, "Couldn't finish — try again.");
+        assert.strictEqual(last.action, "retry");
+        assert.strictEqual(api.chat.current.canRetry, true);
+      });
+
+      test("when the connection to Hodor drops mid-reply, Continue resumes from there", async () => {
+        await restore();
+        const client = api.session.client;
+        const original = client.streamPost.bind(client);
+        // The first reply breaks after one line, like a dropped Wi-Fi.
+        client.streamPost = async () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"type":"text","text":"Working"}\n'));
+                controller.error(new TypeError("terminated"));
+              },
+            })
+          );
+        await api.chat.send("FAKE:chat how many events?");
+        assert.strictEqual(api.chat.current.canContinue, true);
+        assert.strictEqual(api.chat.current.items.at(-1).text, "Connection lost. Your changes so far are kept.");
+        client.streamPost = original;
+        await api.chat.resume();
+        const text = api.chat.current.items.filter((i: any) => i.kind === "assistant").map((i: any) => i.text).join(" ");
+        assert.match(text, /You have 2 events not implemented/);
+        assert.strictEqual(api.chat.current.canContinue, false);
+      });
+    });
+
+    // Last: signing out revokes the token the other tests use.
+    suite("signing out", () => {
+      test("sign out clears the product", async () => {
+        await vscode.commands.executeCommand("hodor.signOut");
+        assert.strictEqual(api.session.isSignedIn(), false);
+        assert.strictEqual(api.choice.project, undefined);
+      });
     });
   });
 });
