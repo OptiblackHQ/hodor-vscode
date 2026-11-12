@@ -87,6 +87,9 @@ export class ChatController implements vscode.Disposable {
     this.history = [];
     this.lastRequest = null;
     this.tools = null;
+    // Changes proposed in the old chat are dropped, so Apply all can't reach them.
+    this.queue?.dispose();
+    this.queue = null;
     this.dispatch({ type: "reset" });
   }
 
@@ -115,8 +118,14 @@ export class ChatController implements vscode.Disposable {
             finished = true;
             this.history = event.messages;
             if (event.stop === "tools") {
-              const results = await this.runPending(event.pending, signal);
+              const { results, stopped } = await this.runPending(event.pending, signal);
               next = [...event.messages, { role: "user", content: [...event.serverResults, ...results] }];
+              // Keep what ran (applied edits included), so the next message builds on it.
+              this.history = next;
+              if (stopped) return this.dispatch({ type: "notice", text: "Stopped. Changes made so far are kept." });
+            } else if (event.stop === "time") {
+              // The request ran out of time on the server; carry on from its progress.
+              next = event.messages;
             } else if (event.stop === "max_tokens") {
               this.dispatch({ type: "notice", text: "The answer was cut off. Ask to continue." });
             } else if (event.stop === "limit") {
@@ -142,11 +151,15 @@ export class ChatController implements vscode.Disposable {
     }
   }
 
-  private async runPending(pending: PendingTool[], signal: AbortSignal): Promise<ToolResult[]> {
+  /** Runs the repo tools; after Stop, the rest are answered as not run. */
+  private async runPending(pending: PendingTool[], signal: AbortSignal): Promise<{ results: ToolResult[]; stopped: boolean }> {
     const tools = (await this.ensureTools())!;
     const results: ToolResult[] = [];
     for (const call of pending) {
-      if (signal.aborted) throw new Error("aborted");
+      if (signal.aborted) {
+        results.push({ type: "tool_result", tool_use_id: call.id, content: "Not run: the developer stopped.", is_error: true });
+        continue;
+      }
       const id = `r${++this.stepCount}`;
       this.dispatch({ type: "step_start", id, ...toolStep(call.name, call.input) });
       const result = (content: string, ok = true) => {
@@ -173,7 +186,7 @@ export class ChatController implements vscode.Disposable {
         result(message, false);
       }
     }
-    return results;
+    return { results, stopped: signal.aborted };
   }
 
   /** propose_edit / create_file: queue it, and apply it now when auto-apply is on. */
@@ -192,7 +205,7 @@ export class ChatController implements vscode.Disposable {
       return [proposal, false];
     }
     this.dispatch({ type: "step_end", id: stepId, ok: true, editId: proposal.id, editStatus: "proposed" });
-    if (!this.autoApply()) {
+    if (!this.autoApply() || proposal.needsReview) {
       return [`Proposed to the developer for review (change ${proposal.id}). Continue with the other events.`, true];
     }
     const applied = await this.applyChange(proposal.id);

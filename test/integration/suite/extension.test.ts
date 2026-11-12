@@ -243,6 +243,32 @@ suite("Hodor extension", () => {
         await vscode.commands.executeCommand("workbench.action.files.revert");
       });
 
+      test("after Stop in the middle of a run, the next message still works", async () => {
+        await restore();
+        await setAutoApply(false);
+        // Press Stop as soon as the chat starts reading a file.
+        const watcher = api.chat.onDidChange((state: any) => {
+          if (state.items.some((i: any) => i.kind === "step" && i.label.startsWith("Reading"))) api.chat.stop();
+        });
+        await api.chat.send("FAKE:implement add the missing events");
+        watcher.dispose();
+        assert.strictEqual(api.chat.current.items.at(-1).text, "Stopped. Changes made so far are kept.");
+        await api.chat.send("FAKE:chat how many events are left?");
+        const text = api.chat.current.items.filter((i: any) => i.kind === "assistant").map((i: any) => i.text).join(" ");
+        assert.match(text, /You have 2 events not implemented/);
+        assert.ok(!api.chat.current.items.some((i: any) => i.kind === "notice" && i.tone === "error"), JSON.stringify(api.chat.current.items));
+      });
+
+      test("New chat drops the old chat's proposed changes", async () => {
+        await restore();
+        await setAutoApply(false);
+        await api.chat.send("FAKE:implement add the missing events");
+        assert.ok(steps().some((s: any) => s.editStatus === "proposed"));
+        api.chat.reset();
+        await api.chat.applyAll();
+        assert.strictEqual(fs.readFileSync(file(), "utf8"), ORIGINAL);
+      });
+
       test("when Claude's connection drops, the chat offers Retry", async () => {
         await restore();
         await api.chat.send("FAKE:slow");

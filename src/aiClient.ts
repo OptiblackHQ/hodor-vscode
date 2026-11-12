@@ -28,10 +28,10 @@ export type TurnEvent =
       messages: ChatMessage[];
       pending: PendingTool[];
       serverResults: ToolResult[];
-      stop: "end" | "tools" | "refusal" | "max_tokens" | "limit";
+      stop: "end" | "tools" | "refusal" | "max_tokens" | "limit" | "time";
       usage: { input: number; output: number };
     }
-  | { type: "error"; code: "bad_key" | "limit" | "overloaded" | "refusal"; message: string };
+  | { type: "error"; code: "bad_key" | "bad_request" | "limit" | "overloaded" | "refusal"; message: string };
 
 async function* bodyChunks(res: Response): AsyncIterable<Uint8Array> {
   if (!res.body) return;

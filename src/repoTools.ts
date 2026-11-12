@@ -4,6 +4,7 @@
 
 import * as crypto from "crypto";
 import * as fs from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
 import { createGuard, Guard, matchLines, SKIPPED_DIRS } from "./repoGuard";
 
@@ -26,13 +27,17 @@ export class RepoTools {
   static async forWorkspace(): Promise<RepoTools | null> {
     const folder = vscode.workspace.workspaceFolders?.[0];
     if (!folder) return null;
-    let gitignore = "";
-    try {
-      gitignore = Buffer.from(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(folder.uri, ".gitignore"))).toString("utf8");
-    } catch {
-      // no .gitignore
-    }
-    return new RepoTools(folder.uri, createGuard(folder.uri.fsPath, gitignore, fs.realpathSync));
+    const read = (file: string) => {
+      try {
+        return fs.readFileSync(file, "utf8");
+      } catch {
+        return null;
+      }
+    };
+    const root = folder.uri.fsPath;
+    const rootRules = [read(path.join(root, ".gitignore")), read(path.join(root, ".git", "info", "exclude"))].filter(Boolean).join("\n");
+    const nestedRules = (dir: string) => (dir === root ? null : read(path.join(dir, ".gitignore")));
+    return new RepoTools(folder.uri, createGuard(root, rootRules, fs.realpathSync, nestedRules));
   }
 
   /** The file's text, from the editor when it is open there. */
@@ -48,7 +53,7 @@ export class RepoTools {
     const lines: string[] = [];
     for (const uri of files.sort((a, b) => a.fsPath.localeCompare(b.fsPath))) {
       if (lines.length >= MAX_MATCHES) break;
-      const resolved = this.guard.resolve(vscode.workspace.asRelativePath(uri, false));
+      const resolved = this.guard.resolve(path.relative(this.root.fsPath, uri.fsPath));
       if (!resolved.ok) continue;
       try {
         const stat = await vscode.workspace.fs.stat(uri);

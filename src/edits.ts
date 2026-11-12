@@ -4,6 +4,7 @@
 
 import * as vscode from "vscode";
 import { Plan, planCreate, planEdit } from "./editPlan";
+import { needsReview } from "./repoGuard";
 import { hashText, RepoTools } from "./repoTools";
 
 export interface Proposal {
@@ -17,6 +18,8 @@ export interface Proposal {
   summary: string;
   status: "proposed" | "applied" | "skipped" | "failed";
   reason?: string;
+  /** Build or config file: never applied without the developer's review. */
+  needsReview: boolean;
 }
 
 const PROPOSED_SCHEME = "hodor-proposed";
@@ -41,8 +44,8 @@ export class EditQueue implements vscode.Disposable {
   }
 
   /** Checks an edit or new file and queues it. Returns the proposal, or a reason it can't be made. */
-  propose(input: Omit<Proposal, "id" | "abs" | "rel" | "status"> & { path: string }): Proposal | string {
-    const resolved = this.tools.guard.resolve(input.path);
+  propose(input: Omit<Proposal, "id" | "abs" | "rel" | "status" | "needsReview"> & { path: string }): Proposal | string {
+    const resolved = this.tools.guard.writable(input.path);
     if (!resolved.ok) return `Can't change ${input.path}: ${resolved.reason}.`;
     if (input.kind === "edit" && !this.tools.readHashes.has(resolved.rel)) {
       return `Read ${resolved.rel} with read_file before editing it.`;
@@ -53,6 +56,7 @@ export class EditQueue implements vscode.Disposable {
       rel: resolved.rel,
       abs: resolved.abs,
       status: "proposed",
+      needsReview: needsReview(resolved.rel),
     };
     this.proposals.set(proposal.id, proposal);
     this.changed.fire(proposal);
