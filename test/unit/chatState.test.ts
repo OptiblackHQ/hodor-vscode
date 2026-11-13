@@ -70,6 +70,10 @@ describe("reduce", () => {
       action: "continue",
     });
 
+    const quota = reduce(initialState, { type: "error", code: "quota", message: "Gemini limit", action: "useClaude" });
+    expect(quota.items.at(-1)).toMatchObject({ action: "useClaude" });
+    expect(reduce(initialState, { type: "error", code: "quota", message: "Gemini limit" }).items.at(-1)).toMatchObject({ action: "retry" });
+
     const keyOff = reduce(initialState, { type: "error", code: "no_key", message: "AI is off" });
     expect(keyOff.items.at(-1)).toMatchObject({ action: "settings" });
     expect(keyOff.canRetry).toBe(false);

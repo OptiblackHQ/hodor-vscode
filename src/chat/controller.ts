@@ -16,7 +16,7 @@ import { Session } from "../session";
 import { changeStatus } from "../status";
 import { ChatRecord, ChatSummary, HistoryStore, newChatId, reopened, titleFor } from "./history";
 import { appliesItself, isMode, Mode, modeFromSettings, modeNote, refusedInMode, runsItself } from "./modes";
-import { chooseModel, ModelOption, modelOptions, Provider, providerOf, ProvidersInfo } from "./models";
+import { chooseModel, claudeFallback, ModelOption, modelOptions, newChatModel, Provider, providerOf, ProvidersInfo } from "./models";
 import { Action, ChatState, initialState, reduce, toolStep } from "./state";
 
 const MAX_REQUESTS = 60;
@@ -74,10 +74,11 @@ export class ChatController implements vscode.Disposable {
     return modelOptions(this.info);
   }
 
-  /** The model this chat uses. */
+  /** The model this chat uses: the one picked for it, else what a new chat starts on. */
   get model(): ModelOption | null {
-    const saved = this.chatModel ?? config().get<string>("ai.model") ?? undefined;
-    return chooseModel(this.info, saved || undefined, config().get<Provider>("ai.provider"));
+    const savedProvider = config().get<Provider>("ai.provider");
+    if (this.chatModel) return chooseModel(this.info, this.chatModel, savedProvider);
+    return newChatModel(this.info, config().get<string>("ai.model") || undefined, savedProvider);
   }
 
   get provider(): Provider {
@@ -109,14 +110,34 @@ export class ChatController implements vscode.Disposable {
   }
 
   /**
-   * Changing the model starts a new chat (each model keeps its own hidden
-   * reasoning); the current chat stays in the history.
+   * Switches the model for the rest of this chat: the next message goes to it
+   * with the whole conversation so far (Hodor converts it between Claude and
+   * Gemini). The chat keeps going; nothing is lost.
    */
-  async setModel(id: string): Promise<void> {
-    if (!this.models.some((m) => m.id === id) || id === this.model?.id) return;
-    await config().update("ai.model", id, vscode.ConfigurationTarget.Global);
-    await config().update("ai.provider", providerOf(id), vscode.ConfigurationTarget.Global);
-    this.newChat();
+  async setModel(id: string, { remember = true } = {}): Promise<void> {
+    const option = this.models.find((m) => m.id === id);
+    if (!option || id === this.model?.id || this.state.running) return;
+    this.chatModel = id;
+    // The pick is also what the next new chat starts on.
+    if (remember) {
+      await config().update("ai.model", id, vscode.ConfigurationTarget.Global);
+      await config().update("ai.provider", providerOf(id), vscode.ConfigurationTarget.Global);
+    }
+    if (this.state.items.length) {
+      this.dispatch({ type: "notice", text: `Switched to ${option.label}. The chat continues with it.` });
+      this.save();
+    } else this.changed.fire(this.state);
+  }
+
+  /**
+   * After Gemini's free limit runs out: this chat goes on with Claude (Haiku).
+   * Only this chat; new chats still start on the person's own pick.
+   */
+  async continueWithClaude(): Promise<void> {
+    const target = claudeFallback(this.info);
+    if (!target || this.state.running) return;
+    await this.setModel(target.id, { remember: false });
+    await this.resume();
   }
 
   /** Older callers (and tests) pick an AI rather than a model. */
@@ -124,10 +145,7 @@ export class ChatController implements vscode.Disposable {
     if (provider === this.provider) return;
     const target = this.info.defaults?.[provider] || this.models.find((m) => m.provider === provider)?.id;
     if (target) await this.setModel(target);
-    else {
-      await config().update("ai.provider", provider, vscode.ConfigurationTarget.Global);
-      this.newChat();
-    }
+    else await config().update("ai.provider", provider, vscode.ConfigurationTarget.Global);
   }
 
   async setMode(mode: Mode): Promise<void> {
@@ -329,6 +347,9 @@ export class ChatController implements vscode.Disposable {
             this.dispatch({ type: "step_start", id, ...toolStep(event.name, event.input) });
             this.dispatch({ type: "step_end", id, ok: event.ok });
           } else if (event.type === "error") {
+            if (event.code === "quota" && model?.provider === "gemini" && claudeFallback(this.info)) {
+              return this.dispatch({ type: "error", code: event.code, message: event.message, action: "useClaude" });
+            }
             if (event.code !== "refusal") return this.dispatch({ type: "error", code: event.code, message: event.message });
             this.dispatch({ type: "notice", text: event.message });
           } else if (event.type === "done") {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- Switch the model in the middle of a chat: Claude ↔ Gemini or between models. The chat goes on with the whole conversation so far.
+- A new chat starts on the model you picked last; with no pick yet, on Gemini when you have a Gemini key.
+- When Gemini's free limit is used up, "Continue with Claude Haiku" carries on in the same chat (only that chat).
+- Claude models listed Sonnet, Haiku, Opus; Sonnet is the default.
+
 ## 0.5.0
 
 - New chat design, like Claude Code: input box with attach, mode, model and a round send / stop button; reads and searches fold into one line; tables, links, quotes and nested lists in answers.

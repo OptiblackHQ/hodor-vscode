@@ -3,7 +3,7 @@ import * as os from "os";
 import * as path from "path";
 import { describe, expect, it } from "vitest";
 import { appliesItself, modeFromSettings, modeNote, refusedInMode, runsItself } from "../../src/chat/modes";
-import { chooseModel, modelOptions, providerOf, shortLabel } from "../../src/chat/models";
+import { chooseModel, claudeFallback, modelOptions, newChatModel, providerOf, shortLabel } from "../../src/chat/models";
 import { HistoryStore, MAX_CHATS, reopened, titleFor } from "../../src/chat/history";
 
 describe("modes", () => {
@@ -53,8 +53,21 @@ describe("models", () => {
     expect(chooseModel({ ...info, gemini: false }, "gemini-3.8-flash", undefined)?.id).toBe("claude-opus-5-5");
     expect(chooseModel(info, undefined, "gemini")?.id).toBe("gemini-3.5-flash-lite");
     expect(chooseModel({ claude: false, gemini: false }, "x", undefined)).toBeNull();
-    // An older Hodor without model lists: Claude Opus.
-    expect(chooseModel({ claude: true, gemini: false }, undefined, undefined)?.id).toBe("claude-opus-5-5");
+    // An older Hodor without model lists: Claude Sonnet.
+    expect(chooseModel({ claude: true, gemini: false }, undefined, undefined)?.id).toBe("claude-sonnet-5-5");
+  });
+  it("a new chat starts on the last pick; with no pick, on Gemini when there is a Gemini key", () => {
+    expect(newChatModel(info, "claude-haiku-5-5", "claude")?.id).toBe("claude-haiku-5-5");
+    expect(newChatModel(info, undefined, "claude")?.id).toBe("gemini-3.5-flash-lite");
+    expect(newChatModel(info, "claude-gone", "claude")?.id).toBe("claude-opus-5-5");
+    expect(newChatModel({ ...info, gemini: false }, "claude-haiku-5-5", "claude")?.id).toBe("claude-haiku-5-5");
+    const two = { ...info, models: { ...info.models, gemini: [...info.models.gemini, { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash" }] } };
+    expect(newChatModel(two, "gemini-3.8-flash", "gemini")?.id).toBe("gemini-3.8-flash");
+  });
+  it("when Gemini's limit runs out, the chat can go on with Claude Haiku", () => {
+    expect(claudeFallback(info)?.id).toBe("claude-haiku-5-5");
+    expect(claudeFallback({ ...info, models: { ...info.models, claude: [{ id: "claude-opus-5-5", label: "Claude Opus 5.5" }] } })?.id).toBe("claude-opus-5-5");
+    expect(claudeFallback({ ...info, claude: false })).toBeNull();
   });
   it("short labels for the input box", () => {
     expect(providerOf("gemini-3.8-flash")).toBe("gemini");

@@ -26,7 +26,7 @@ export type Item =
       commandState?: CommandState;
       output?: string;
     }
-  | { kind: "notice"; tone: "error" | "info"; text: string; action?: "retry" | "continue" | "settings" };
+  | { kind: "notice"; tone: "error" | "info"; text: string; action?: NoticeAction };
 
 export interface ChatState {
   items: Item[];
@@ -46,7 +46,7 @@ export type Action =
   | { type: "step_end"; id: string; ok: boolean; detail?: string; editId?: number; editStatus?: EditStatus }
   | { type: "edit"; editId: number; status: EditStatus; detail?: string }
   | { type: "command"; id: string; state: CommandState; output?: string }
-  | { type: "error"; code: string; message: string }
+  | { type: "error"; code: string; message: string; action?: NoticeAction }
   | { type: "notice"; text: string }
   | { type: "network" }
   | { type: "running"; running: boolean }
@@ -90,7 +90,9 @@ export const toolStep = (name: string, input: Record<string, any>): { icon: Icon
   }
 };
 
-const ACTIONS: Record<string, "retry" | "settings" | undefined> = {
+export type NoticeAction = "retry" | "continue" | "settings" | "useClaude";
+
+const ACTIONS: Record<string, NoticeAction | undefined> = {
   overloaded: "retry",
   quota: "retry",
   no_key: "settings",
@@ -149,7 +151,7 @@ export const reduce = (state: ChatState, action: Action): ChatState => {
         ),
       };
     case "error": {
-      const act = ACTIONS[action.code];
+      const act = action.action ?? ACTIONS[action.code];
       const notice: Item = { kind: "notice", tone: "error", text: action.message, ...(act ? { action: act } : {}) };
       return { ...state, items: [...items, notice], running: false, canRetry: act === "retry" };
     }

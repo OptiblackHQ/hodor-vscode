@@ -273,15 +273,18 @@ suite("Hodor extension", () => {
         assert.strictEqual(fs.readFileSync(file(), "utf8"), ORIGINAL);
       });
 
-      test("Gemini: the picker offers it, switching starts a new chat, and it implements the event", async () => {
+      test("Gemini: the picker offers it, switching keeps the chat going, and it implements the event", async () => {
         await restore();
         await api.chat.loadProviders();
         assert.deepStrictEqual(api.chat.providers, { claude: true, gemini: true });
+        await api.chat.setProvider("claude");
         await api.chat.send("FAKE:chat hello");
-        assert.ok(api.chat.current.items.length > 0);
+        const before = api.chat.current.items.length;
+        assert.ok(before > 0);
         await api.chat.setProvider("gemini");
         assert.strictEqual(api.chat.provider, "gemini");
-        assert.strictEqual(api.chat.current.items.length, 0, "switching starts a new chat");
+        assert.ok(api.chat.current.items.length > before, "the same chat, with a note about the switch");
+        assert.match(api.chat.current.items.at(-1).text, /Switched to Gemini/);
         await setAutoApply(true);
         try {
           await api.chat.send("FAKE:implement add the missing events");
@@ -363,23 +366,45 @@ suite("Hodor extension", () => {
         assert.ok(!api.chat.listChats().some((c: any) => c.id === id));
       });
 
-      test("the model picker: Claude and Gemini models; changing it starts a new chat and is used", async () => {
+      test("the model picker: Claude and Gemini models; switching mid-chat sends the whole chat to the new model", async () => {
         await restore();
         await api.chat.loadProviders();
         const ids = api.chat.models.map((m: any) => m.id);
         assert.ok(ids.includes("claude-haiku-5-5") && ids.some((i: string) => i.startsWith("gemini")), ids.join(","));
+        await api.chat.setModel(ids.find((i: string) => i.startsWith("gemini")));
         await api.chat.send("FAKE:chat hi");
         await api.chat.setModel("claude-haiku-5-5");
-        assert.strictEqual(api.chat.current.items.length, 0, "a new chat");
         await api.chat.send("FAKE:chat which model?");
+        assert.strictEqual(api.chat.current.items.filter((i: any) => i.kind === "user").length, 2, "one chat");
         const log = process.env.FAKE_CLAUDE_LOG;
         if (log) {
           const last = JSON.parse(fs.readFileSync(log, "utf8").trim().split("\n").at(-1)!);
           assert.strictEqual(last.model, "claude-haiku-5-5");
+          assert.match(JSON.stringify(last.messages[0]), /FAKE:chat hi/, "Claude gets what was said to Gemini");
+          assert.ok(!JSON.stringify(last.messages).includes("gemini_parts"));
           assert.match(JSON.stringify(last.messages.at(-1)), /\[Mode: ask before edits/);
         }
-        await vscode.workspace.getConfiguration("hodor").update("ai.model", undefined, vscode.ConfigurationTarget.Global);
         api.chat.newChat();
+        assert.strictEqual(api.chat.model.id, "claude-haiku-5-5", "a new chat starts on the last pick");
+        await vscode.workspace.getConfiguration("hodor").update("ai.model", undefined, vscode.ConfigurationTarget.Global);
+        assert.strictEqual(api.chat.provider, "gemini", "with no pick, a new chat starts on Gemini");
+        await api.chat.setProvider("claude"); // the rest of the tests use Claude
+      });
+
+      test("Gemini's free limit used up: Continue with Claude Haiku goes on in the same chat", async () => {
+        await restore();
+        await api.chat.loadProviders();
+        api.chat.newChat();
+        await api.chat.setProvider("gemini");
+        await api.chat.send("FAKE:quota please");
+        const notice = api.chat.current.items.at(-1);
+        assert.strictEqual(notice.action, "useClaude", JSON.stringify(notice));
+        await api.chat.continueWithClaude();
+        assert.strictEqual(api.chat.model.id, "claude-haiku-5-5");
+        assert.ok(api.chat.current.items.some((i: any) => i.kind === "assistant"), "Claude answered in the same chat");
+        api.chat.newChat();
+        assert.strictEqual(api.chat.provider, "gemini", "only that chat moved to Claude");
+        await api.chat.setProvider("claude");
       });
 
       test("a command waits for Run, runs in the project with its output, then the agent carries on", async () => {

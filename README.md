@@ -54,7 +54,7 @@ It decides where each call goes itself, and its summary says which place it chos
   - **Ask before edits** (default): every change waits for **Apply**, every command for **Run**.
   - **Edit automatically:** changes apply right away; commands still ask.
   - **Full access:** changes and commands run without asking (it asks you to confirm once). Protected folders and private files stay blocked.
-- **Model:** Claude Opus, Sonnet or Haiku, or the Gemini models your key allows. Changing it starts a new chat.
+- **Model:** Claude Sonnet, Haiku or Opus, or the Gemini models your key allows. Switch any time; the chat continues with the new model. New chats start on your last pick.
 
 Enter sends, Shift+Enter adds a line; the round button turns into **Stop** while it works. On a Mac, press **Fn** twice to dictate.
 

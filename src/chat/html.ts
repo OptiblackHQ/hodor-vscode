@@ -128,7 +128,7 @@ export const renderChatPage = ({ nonce, cspSource }: { nonce: string; cspSource:
     <button id="attach" type="button" class="ghost" title="Attach a screenshot (or paste one)" aria-label="Attach a screenshot">+</button>
     <input id="file" type="file" accept="image/*" multiple style="display:none">
     <select id="mode" class="chip" title="What the AI may do without asking" aria-label="Mode"></select>
-    <select id="model" class="chip" title="AI model (changing it starts a new chat)" aria-label="Model"></select>
+    <select id="model" class="chip" title="AI model (you can switch any time; the chat continues)" aria-label="Model"></select>
     <span class="spacer"></span>
     <button id="send" type="submit" title="Send (Enter)" aria-label="Send">↑</button>
     <button id="stop" type="button" title="Stop" aria-label="Stop" style="display:none">■</button>
@@ -151,7 +151,7 @@ export const renderChatPage = ({ nonce, cspSource }: { nonce: string; cspSource:
   const attachments = document.getElementById("attachments");
   const fileInput = document.getElementById("file");
   const MARK = { running: "↻", ok: "✓", error: "✗" };
-  const ACTION_LABEL = { retry: "Retry", continue: "Continue", settings: "Add your AI key in Hodor" };
+  const ACTION_LABEL = { retry: "Retry", continue: "Continue", settings: "Add your AI key in Hodor", useClaude: "Continue with Claude Haiku" };
   const QUIET = ["search", "folder", "read", "events", "code", "problems"];
   const MAX_IMAGES = 4;
   const MAX_SIDE = 1568;

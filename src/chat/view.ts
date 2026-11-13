@@ -15,7 +15,7 @@ import { shortLabel } from "./models";
 type Mode = "signedOut" | "noProject" | "noFolder" | "ready";
 
 type Message =
-  | { type: "ready" | "stop" | "retry" | "continue" | "settings" | "applyAll" | "signIn" | "pickProject" | "newChat" | "listChats" | "approvePlan" }
+  | { type: "ready" | "stop" | "retry" | "continue" | "useClaude" | "settings" | "applyAll" | "signIn" | "pickProject" | "newChat" | "listChats" | "approvePlan" }
   | { type: "openChat" | "deleteChat"; id: string }
   | { type: "setMode"; mode: string }
   | { type: "setModel"; model: string }
@@ -128,6 +128,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         case "retry":
         case "continue":
           return await this.chat.resume();
+        case "useClaude":
+          return await this.chat.continueWithClaude();
         case "apply":
           await this.chat.applyChange(message.id);
           return;
