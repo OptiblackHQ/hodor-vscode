@@ -97,3 +97,15 @@ describe("commands", () => {
     expect(s.items[0]).toMatchObject({ kind: "step", command: "npm test", commandState: "done", output: "1 passed" });
   });
 });
+
+describe("screenshots and Gemini limits", () => {
+  it("keeps a message's screenshots for display", () => {
+    const s = reduce(initialState, { type: "user", text: "what is this?", images: ["data:image/jpeg;base64,QQ=="] });
+    expect(s.items[0]).toEqual({ kind: "user", text: "what is this?", images: ["data:image/jpeg;base64,QQ=="] });
+  });
+  it("a used-up Gemini key offers Retry", () => {
+    const s = reduce({ ...initialState, running: true }, { type: "error", code: "quota", message: "limit" });
+    expect(s.items[0]).toMatchObject({ kind: "notice", action: "retry" });
+    expect(s.canRetry).toBe(true);
+  });
+});

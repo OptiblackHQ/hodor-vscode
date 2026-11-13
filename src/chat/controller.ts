@@ -3,7 +3,7 @@
 // results until Claude is done. Applied edits mark their events implemented.
 
 import * as vscode from "vscode";
-import { aiTurn, ChatMessage, PendingTool, ToolResult } from "../aiClient";
+import { aiTurn, ChatMessage, PendingTool, Provider, ToolResult } from "../aiClient";
 import { HodorError } from "../api";
 import { EditQueue, Proposal } from "../edits";
 import { EventTreeProvider } from "../eventTree";
@@ -17,6 +17,11 @@ import { Action, ChatState, initialState, reduce, toolStep } from "./state";
 const MAX_REQUESTS = 60;
 /** How often live command output is redrawn. */
 const OUTPUT_EVERY_MS = 250;
+/** Screenshots per message, and in one chat (every request carries the whole chat; Hodor takes 4 MB). */
+export const MAX_IMAGES_PER_MESSAGE = 4;
+const MAX_IMAGE_CHARS = 1_200_000;
+const MAX_CHAT_IMAGE_CHARS = 2_600_000;
+const IMAGE_DATA_URL = /^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=]+)$/;
 
 export class ChatController implements vscode.Disposable {
   private state: ChatState = initialState;
@@ -28,6 +33,10 @@ export class ChatController implements vscode.Disposable {
   private tools: RepoTools | null = null;
   private queue: EditQueue | null = null;
   private stepCount = 0;
+  /** Characters of screenshots in this chat so far. */
+  private imageChars = 0;
+  /** Which AIs this product can use, and the one picked for this chat. */
+  private available: { claude: boolean; gemini: boolean } = { claude: true, gemini: false };
   /** Commands waiting for the developer's Run / Skip, by step id. */
   private readonly decisions = new Map<string, (run: boolean) => void>();
   private readonly changed = new vscode.EventEmitter<ChatState>();
@@ -41,6 +50,37 @@ export class ChatController implements vscode.Disposable {
 
   get current(): ChatState {
     return this.state;
+  }
+
+  /** The AI picked in settings, when it has a key; otherwise the one that has. */
+  get provider(): Provider {
+    const wanted = vscode.workspace.getConfiguration("hodor").get<Provider>("ai.provider") ?? "claude";
+    if (this.available[wanted]) return wanted;
+    return this.available.claude ? "claude" : this.available.gemini ? "gemini" : wanted;
+  }
+
+  get providers(): { claude: boolean; gemini: boolean } {
+    return this.available;
+  }
+
+  /** Asks Hodor which AIs this product can use (call when the product or keys change). */
+  async loadProviders(): Promise<void> {
+    const project = this.choice.project;
+    if (!project || !this.session.isSignedIn()) return;
+    try {
+      this.available = await this.session.client.aiProviders(project.id);
+    } catch {
+      // Older Hodor without the endpoint: Claude through the product's key.
+      this.available = { claude: true, gemini: false };
+    }
+    this.changed.fire(this.state);
+  }
+
+  /** Switching AI starts a new chat: each AI keeps its own (hidden) reasoning. */
+  async setProvider(provider: Provider): Promise<void> {
+    if (provider === this.provider) return;
+    await vscode.workspace.getConfiguration("hodor").update("ai.provider", provider, vscode.ConfigurationTarget.Global);
+    this.reset();
   }
 
   private dispatch(action: Action): void {
@@ -66,15 +106,40 @@ export class ChatController implements vscode.Disposable {
     return this.tools;
   }
 
-  async send(text: string): Promise<void> {
-    const message = text.trim();
+  /** Sends a message, with screenshots as data: URLs (shrunk by the chat page). */
+  async send(text: string, images: string[] = []): Promise<void> {
+    const message = text.trim() || (images.length ? "See the screenshot." : "");
     if (!message || this.state.running) return;
     if (!(await this.ensureTools())) {
       vscode.window.showWarningMessage("Open the project folder first: the chat works on the open project.");
       return;
     }
-    this.dispatch({ type: "user", text: message });
-    await this.run([...this.history, { role: "user", content: message }]);
+    const blocks: unknown[] = [];
+    let chars = 0;
+    for (const url of images.slice(0, MAX_IMAGES_PER_MESSAGE)) {
+      const m = IMAGE_DATA_URL.exec(url);
+      if (!m || url.length > MAX_IMAGE_CHARS) {
+        vscode.window.showWarningMessage("Hodor: one of the images couldn't be sent (too large or not an image).");
+        return;
+      }
+      chars += url.length;
+      blocks.push({ type: "image", source: { type: "base64", media_type: m[1], data: m[2] } });
+    }
+    if (this.imageChars + chars > MAX_CHAT_IMAGE_CHARS) {
+      vscode.window.showWarningMessage("Hodor: this chat has as many screenshots as it can carry. Start a new chat to add more.");
+      return;
+    }
+    this.imageChars += chars;
+    this.dispatch({ type: "user", text: message, ...(images.length ? { images: images.slice(0, MAX_IMAGES_PER_MESSAGE) } : {}) });
+    const content = blocks.length ? [...blocks, { type: "text", text: message }] : message;
+    await this.run([...this.history, { role: "user", content }]);
+  }
+
+  /** The file on disk for a path the AI used, or null when it is outside the open folders. */
+  async fileFor(rel: string): Promise<string | null> {
+    const tools = await this.ensureTools();
+    const resolved = tools?.guard.resolve(rel);
+    return resolved?.ok ? resolved.abs : null;
   }
 
   /** Re-posts the last request after a lost connection or a busy Claude. */
@@ -93,6 +158,7 @@ export class ChatController implements vscode.Disposable {
     this.history = [];
     this.lastRequest = null;
     this.tools = null;
+    this.imageChars = 0;
     // Changes proposed in the old chat are dropped, so Apply all can't reach them.
     this.queue?.dispose();
     this.queue = null;
@@ -106,12 +172,14 @@ export class ChatController implements vscode.Disposable {
     this.abort = new AbortController();
     const signal = this.abort.signal;
     let request = messages;
+    const tools = (await this.ensureTools())!;
+    const options = { provider: this.provider, workspace: tools.describe() };
     try {
       for (let n = 0; n < MAX_REQUESTS; n++) {
         this.lastRequest = request;
         let finished = false;
         let next: ChatMessage[] | null = null;
-        for await (const event of aiTurn(this.session.client, project.id, request, signal)) {
+        for await (const event of aiTurn(this.session.client, project.id, request, signal, options)) {
           if (event.type === "text") this.dispatch({ type: "text", text: event.text });
           else if (event.type === "server_tool") {
             const id = `s${++this.stepCount}`;
@@ -148,6 +216,7 @@ export class ChatController implements vscode.Disposable {
       if (signal.aborted) return this.dispatch({ type: "notice", text: "Stopped. Changes made so far are kept." });
       if (error instanceof HodorError && error.status) {
         const code = error.status === 412 ? "no_key" : error.status === 429 ? "limit" : "http";
+        if (error.status === 412) void this.loadProviders();
         return this.dispatch({ type: "error", code, message: error.message });
       }
       this.dispatch({ type: "network" });
@@ -188,7 +257,7 @@ export class ChatController implements vscode.Disposable {
           result(tools.problems(input.path));
           this.dispatch({ type: "step_end", id, ok: true });
         } else if (call.name === "run_command") {
-          result(...(await this.command(id, input.command, tools.root.fsPath, signal)));
+          result(...(await this.command(id, input.command, tools.cwd(input.cwd), signal)));
         } else {
           result(...(await this.change(id, call)));
         }

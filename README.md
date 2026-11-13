@@ -11,7 +11,9 @@ Your product's tracking plan from [Hodor](https://hodor.optiblack.com), inside y
   - Say "implement them": it finds where each event happens in your code, adds Hodor's tracking code there, and marks the event implemented.
   - Paste events from a sheet or ticket and say "implement these": it adds them to your code too.
   - Any other coding task: explain code, fix errors, write features. It can run commands (install, build, test) after you click **Run**.
-  - It needs a Claude key, added by the product owner in Hodor.
+  - Paste screenshots (errors, dashboards, plan tables) into the chat.
+  - Works across several repos at once.
+  - Uses your own Claude or Google Gemini key (a free Gemini key works), added once in Hodor.
 
 ## Sign in
 
@@ -64,9 +66,16 @@ It decides where each call goes itself, and its summary says which place it chos
 - **Changes:** it can't delete files. An edit is refused if the file changed after the AI read it.
 - **Commands:** only the ones you click **Run** on. They run in the project folder with your permissions, so read each one first.
 
-**The Claude key** belongs to the product, not to you. The product owner adds it on the product's settings page in Hodor and sets a daily limit.
-- The extension never sees the key: Hodor's server calls Claude with it.
-- Code the AI reads is sent to Hodor and then to Anthropic under that key.
+**Screenshots.** Paste one (⌘V / Ctrl+V), drop it on the message box, or click **+ Image**; up to 4 per message. They are shrunk before sending. A chat holds a limited number of screenshots; start a new chat for more.
+
+**Several repos.** Open a folder that holds your repos (for example `Optiblack/` with `shop/`, `admin/`, `api/` inside), or add each repo to one workspace (**File → Add Folder to Workspace**). The chat sees all of them, knows which language each uses, and runs commands in the right one. Each repo's `.gitignore` is respected.
+
+**AI keys.** Add your own key once on Hodor's **MCP / CLI** page, under **AI keys for the editor chat**. It works for every product and repo you open.
+- **Claude** (console.anthropic.com): paid per use, the best results.
+- **Google Gemini** (aistudio.google.com): free keys work, with daily limits. Pick the model there; Flash-Lite has the highest free limits.
+- With both, pick one at the top of the chat. Switching starts a new chat.
+- A product owner can also add a Claude key to a product; people without their own key then use it.
+- The extension never sees a key: Hodor's server calls the AI with it. Code the AI reads is sent to Hodor and then to Anthropic or Google under that key. On Google's free plan, Google may use it to improve its models.
 - Without a key, the chat says so and everything else keeps working.
 
 ## Settings
@@ -75,6 +84,7 @@ It decides where each call goes itself, and its summary says which place it chos
 |---|---|---|
 | `hodor.serverUrl` | `https://hodor.optiblack.com` | Change only to test against a local Hodor. |
 | `hodor.ai.autoApply` | `false` | Apply the chat's changes right away instead of waiting for **Apply**. |
+| `hodor.ai.provider` | `claude` | The AI the chat uses when you have keys for both (`claude` or `gemini`). |
 
 ## Develop
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createGuard, matchLines, needsReview } from "../../src/repoGuard";
+import { createGuard, folderNames, matchLines, needsReview, workspaceGuard } from "../../src/repoGuard";
 
 const ROOT = "/work/app";
 // Fake realpath: one symlink inside the project points outside it.
@@ -107,5 +107,41 @@ describe("createGuard with real links and nested .gitignore files", () => {
       expect(needsReview(p)).toBe(true);
     }
     expect(needsReview("src/signup.js")).toBe(false);
+  });
+});
+
+describe("several repos", () => {
+  const same = (p: string) => p;
+  it("never writes .github, .vscode and the like at any depth (a folder of repos)", () => {
+    const g = createGuard("/work/all", "", same);
+    expect(g.writable("shop/.github/workflows/ci.yml")).toMatchObject({ ok: false });
+    expect(g.writable("shop/.vscode/tasks.json")).toMatchObject({ ok: false });
+    expect(g.writable("shop/src/app.ts")).toMatchObject({ ok: true, rel: "shop/src/app.ts" });
+  });
+
+  it("one open folder: paths start inside it, as before", () => {
+    const w = workspaceGuard([{ name: "app", abs: "/work/app", guard: createGuard("/work/app", "", same) }]);
+    expect(w.resolve("src/a.ts")).toMatchObject({ ok: true, rel: "src/a.ts", abs: "/work/app/src/a.ts" });
+    expect(w.relOf("/work/app/src/a.ts")).toBe("src/a.ts");
+    expect(w.relOf("/elsewhere/a.ts")).toBeNull();
+  });
+
+  it("several open folders: each path starts with the folder's name", () => {
+    const w = workspaceGuard([
+      { name: "shop", abs: "/work/shop", guard: createGuard("/work/shop", "dist-secret/\n", same) },
+      { name: "admin", abs: "/code/admin", guard: createGuard("/code/admin", "", same) },
+    ]);
+    expect(w.resolve("admin/main.go")).toMatchObject({ ok: true, rel: "admin/main.go", abs: "/code/admin/main.go" });
+    expect(w.resolve("./shop/src/a.ts")).toMatchObject({ ok: true, rel: "shop/src/a.ts" });
+    expect(w.resolve("shop/dist-secret/x")).toMatchObject({ ok: false, reason: "ignored by .gitignore" });
+    expect(w.resolve("billing/a.ts")).toMatchObject({ ok: false });
+    expect(w.resolve("shop/../admin/main.go")).toMatchObject({ ok: false, reason: "outside the project" });
+    expect(w.resolve("")).toMatchObject({ ok: false });
+    expect(w.writable("admin/.github/x.yml")).toMatchObject({ ok: false });
+    expect(w.relOf("/code/admin/cmd/x.go")).toBe("admin/cmd/x.go");
+  });
+
+  it("folder names are unique", () => {
+    expect(folderNames(["/a/app", "/b/app", "/c/web"])).toEqual(["app", "app-2", "web"]);
   });
 });

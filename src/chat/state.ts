@@ -9,7 +9,8 @@ export type CommandState = "waiting" | "running" | "done" | "skipped";
 export type EditStatus = "proposed" | "applied" | "skipped" | "failed";
 
 export type Item =
-  | { kind: "user" | "assistant"; text: string }
+  | { kind: "user"; text: string; images?: string[] }
+  | { kind: "assistant"; text: string }
   | {
       kind: "step";
       id: string;
@@ -37,7 +38,7 @@ export interface ChatState {
 export const initialState: ChatState = { items: [], running: false, canContinue: false, canRetry: false };
 
 export type Action =
-  | { type: "user"; text: string }
+  | { type: "user"; text: string; images?: string[] }
   | { type: "text"; text: string }
   | { type: "step_start"; id: string; icon: Icon; label: string; path?: string; line?: number; command?: string; commandState?: CommandState }
   | { type: "step_end"; id: string; ok: boolean; detail?: string; editId?: number; editStatus?: EditStatus }
@@ -81,13 +82,24 @@ export const toolStep = (name: string, input: Record<string, any>): { icon: Icon
   }
 };
 
-const ACTIONS: Record<string, "retry" | "settings" | undefined> = { overloaded: "retry", no_key: "settings", bad_key: "settings" };
+const ACTIONS: Record<string, "retry" | "settings" | undefined> = {
+  overloaded: "retry",
+  quota: "retry",
+  no_key: "settings",
+  bad_key: "settings",
+};
 
 export const reduce = (state: ChatState, action: Action): ChatState => {
   const items = state.items;
   switch (action.type) {
     case "user":
-      return { ...state, items: [...items, { kind: "user", text: action.text }], running: true, canContinue: false, canRetry: false };
+      return {
+        ...state,
+        items: [...items, { kind: "user", text: action.text, ...(action.images?.length ? { images: action.images } : {}) }],
+        running: true,
+        canContinue: false,
+        canRetry: false,
+      };
     case "text": {
       const last = items[items.length - 1];
       if (last?.kind === "assistant") return { ...state, items: [...items.slice(0, -1), { ...last, text: last.text + action.text }] };

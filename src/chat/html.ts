@@ -6,7 +6,7 @@ export const renderChatPage = ({ nonce, cspSource }: { nonce: string; cspSource:
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
   html, body { height: 100%; }
@@ -52,12 +52,26 @@ export const renderChatPage = ({ nonce, cspSource }: { nonce: string; cspSource:
   .cmd { margin: 2px 0 6px 20px; }
   .cmd .line { color: var(--vscode-foreground); }
   .cmd .output { max-height: 220px; overflow-y: auto; margin-top: 4px; white-space: pre-wrap; }
+  #top { display: none; align-items: center; gap: 6px; padding: 4px 10px; border-bottom: 1px solid var(--vscode-panel-border); font-size: 0.9em; color: var(--vscode-descriptionForeground); }
+  select { background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border, transparent); font: inherit; padding: 1px 4px; }
+  .thumbs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .thumbs img { max-width: 120px; max-height: 80px; border-radius: 3px; border: 1px solid var(--vscode-panel-border); }
+  #attachments { display: none; padding: 6px 10px 0; }
+  .thumb { position: relative; }
+  .thumb button { position: absolute; top: -6px; right: -6px; padding: 0 5px; border-radius: 8px; font-size: 0.8em; }
+  .msg.user .thumbs { margin-bottom: 4px; }
+  #composer.drag { outline: 1px dashed var(--vscode-focusBorder); }
+  #attach { padding: 3px 8px; }
 </style>
 </head>
 <body>
+<div id="top"><label for="provider">AI</label><select id="provider"><option value="claude">Claude</option><option value="gemini">Gemini</option></select><span>switching starts a new chat</span></div>
 <div id="log"></div>
 <div id="bar"><button id="applyAll">Apply all changes</button></div>
+<div id="attachments" class="thumbs"></div>
 <form id="composer">
+  <button id="attach" type="button" class="secondary" title="Attach a screenshot (or paste one)" aria-label="Attach a screenshot">+ Image</button>
+  <input id="file" type="file" accept="image/*" multiple style="display:none">
   <textarea id="input" rows="1" placeholder="Ask anything about the code, or “implement the missing events”" aria-label="Message"></textarea>
   <button id="send" type="submit">Send</button>
   <button id="stop" type="button" class="secondary" style="display:none">Stop</button>
@@ -70,7 +84,73 @@ export const renderChatPage = ({ nonce, cspSource }: { nonce: string; cspSource:
   const stop = document.getElementById("stop");
   const bar = document.getElementById("bar");
   const MARK = { running: "↻", ok: "✓", error: "✗" };
-  const ACTION_LABEL = { retry: "Retry", continue: "Continue", settings: "Open Hodor settings" };
+  const ACTION_LABEL = { retry: "Retry", continue: "Continue", settings: "Add your AI key in Hodor" };
+  const topBar = document.getElementById("top");
+  const providerSelect = document.getElementById("provider");
+  const attachments = document.getElementById("attachments");
+  const fileInput = document.getElementById("file");
+  const composer = document.getElementById("composer");
+  const MAX_IMAGES = 4;
+  const MAX_SIDE = 1568;
+  let pending = [];
+
+  // Screenshots are shrunk here (longest side 1568 px, JPEG): every request
+  // carries the whole chat, so full-size images would soon be too big.
+  function shrink(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("unreadable"));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("not an image"));
+        img.onload = () => {
+          const scale = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL("image/jpeg", 0.8));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function addFiles(files) {
+    for (const file of files) {
+      if (!file.type.startsWith("image/") || pending.length >= MAX_IMAGES) continue;
+      try {
+        pending.push(await shrink(file));
+      } catch {
+        // not an image we can read
+      }
+    }
+    drawAttachments();
+  }
+
+  function drawAttachments() {
+    attachments.textContent = "";
+    attachments.style.display = pending.length ? "flex" : "none";
+    pending.forEach((url, i) => {
+      const box = el("div", "thumb");
+      const img = el("img");
+      img.src = url;
+      img.alt = "Screenshot " + (i + 1);
+      const remove = el("button", "secondary", "✕");
+      remove.type = "button";
+      remove.title = "Remove";
+      remove.addEventListener("click", () => {
+        pending.splice(i, 1);
+        drawAttachments();
+      });
+      box.append(img, remove);
+      attachments.appendChild(box);
+    });
+  }
 
   const el = (tag, cls, text) => {
     const node = document.createElement(tag);
@@ -144,7 +224,11 @@ export const renderChatPage = ({ nonce, cspSource }: { nonce: string; cspSource:
   };
 
   function render(view) {
-    const { mode, state } = view;
+    const { mode, state, ai } = view;
+    const both = ai && ai.available.claude && ai.available.gemini;
+    topBar.style.display = mode === "ready" && both ? "flex" : "none";
+    if (ai) providerSelect.value = ai.provider;
+    providerSelect.disabled = state.running;
     log.textContent = "";
     const ready = mode === "ready";
     input.disabled = !ready;
@@ -167,7 +251,21 @@ export const renderChatPage = ({ nonce, cspSource }: { nonce: string; cspSource:
       log.appendChild(box);
     }
     for (const item of state.items) {
-      if (item.kind === "user") log.appendChild(el("div", "msg user", item.text));
+      if (item.kind === "user") {
+        const box = el("div", "msg user");
+        if (item.images && item.images.length) {
+          const thumbs = el("div", "thumbs");
+          for (const url of item.images) {
+            const img = el("img");
+            img.src = url;
+            img.alt = "Screenshot";
+            thumbs.appendChild(img);
+          }
+          box.appendChild(thumbs);
+        }
+        box.appendChild(document.createTextNode(item.text));
+        log.appendChild(box);
+      }
       else if (item.kind === "assistant") {
         log.appendChild(renderAnswer(item.blocks || []));
         const actions = el("div", "answer-actions");
@@ -210,9 +308,11 @@ export const renderChatPage = ({ nonce, cspSource }: { nonce: string; cspSource:
   window.addEventListener("message", (e) => render(e.data));
   document.getElementById("composer").addEventListener("submit", (e) => {
     e.preventDefault();
-    if (!input.value.trim()) return;
-    vscode.postMessage({ type: "send", text: input.value });
+    if (!input.value.trim() && !pending.length) return;
+    vscode.postMessage({ type: "send", text: input.value, images: pending });
     input.value = "";
+    pending = [];
+    drawAttachments();
   });
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -221,6 +321,29 @@ export const renderChatPage = ({ nonce, cspSource }: { nonce: string; cspSource:
     }
   });
   stop.addEventListener("click", () => vscode.postMessage({ type: "stop" }));
+  providerSelect.addEventListener("change", () => vscode.postMessage({ type: "setProvider", provider: providerSelect.value }));
+  document.getElementById("attach").addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => {
+    addFiles([...fileInput.files]);
+    fileInput.value = "";
+  });
+  input.addEventListener("paste", (e) => {
+    const files = [...(e.clipboardData?.items || [])].filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter(Boolean);
+    if (files.length) {
+      e.preventDefault();
+      addFiles(files);
+    }
+  });
+  composer.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    composer.classList.add("drag");
+  });
+  composer.addEventListener("dragleave", () => composer.classList.remove("drag"));
+  composer.addEventListener("drop", (e) => {
+    e.preventDefault();
+    composer.classList.remove("drag");
+    addFiles([...(e.dataTransfer?.files || [])]);
+  });
   document.getElementById("applyAll").addEventListener("click", () => vscode.postMessage({ type: "applyAll" }));
   vscode.postMessage({ type: "ready" });
 </script>

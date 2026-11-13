@@ -7,6 +7,8 @@ import { parseNdjson } from "./ndjson";
 /** The conversation is kept exactly as Hodor returns it (Claude's message format). */
 export type ChatMessage = { role: "user" | "assistant"; content: unknown };
 
+export type Provider = "claude" | "gemini";
+
 export interface PendingTool {
   id: string;
   name: "search_code" | "list_files" | "read_file" | "propose_edit" | "create_file" | "run_command" | "get_problems";
@@ -31,7 +33,7 @@ export type TurnEvent =
       stop: "end" | "tools" | "refusal" | "max_tokens" | "limit" | "time";
       usage: { input: number; output: number };
     }
-  | { type: "error"; code: "bad_key" | "bad_request" | "limit" | "overloaded" | "refusal"; message: string };
+  | { type: "error"; code: "bad_key" | "bad_request" | "limit" | "overloaded" | "refusal" | "quota"; message: string };
 
 async function* bodyChunks(res: Response): AsyncIterable<Uint8Array> {
   if (!res.body) return;
@@ -47,8 +49,9 @@ export async function* aiTurn(
   client: HodorClient,
   projectId: string,
   messages: ChatMessage[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options: { provider?: Provider; workspace?: string } = {}
 ): AsyncIterable<TurnEvent> {
-  const res = await client.streamPost(`/api/cli/projects/${encodeURIComponent(projectId)}/ai/turn`, { messages }, signal);
+  const res = await client.streamPost(`/api/cli/projects/${encodeURIComponent(projectId)}/ai/turn`, { messages, ...options }, signal);
   for await (const event of parseNdjson(bodyChunks(res))) yield event as TurnEvent;
 }

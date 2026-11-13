@@ -177,16 +177,20 @@ suite("Hodor extension", () => {
 
       suiteSetup(async function () {
         if (!WORKSPACE) this.skip();
+        // A fresh token for the chat tests: Hodor allows 120 requests a minute per token.
+        if (process.env.HODOR_TOKEN2) await vscode.commands.executeCommand("hodor._setTokenForTests", process.env.HODOR_TOKEN2);
         await vscode.commands.executeCommand("hodor.pickProject", PROJECT);
         await until(() => api.tree.getEventByName("signup_completed"), "events");
       });
 
-      test("without a Claude key, the chat says AI is off and links to settings", async () => {
+      test("a product with no Claude key uses the person's own Gemini key", async () => {
         await vscode.commands.executeCommand("hodor.pickProject", PROJECT2);
+        await api.chat.loadProviders();
+        assert.deepStrictEqual(api.chat.providers, { claude: false, gemini: true });
+        assert.strictEqual(api.chat.provider, "gemini");
         await api.chat.send("FAKE:chat how many events?");
-        const last = api.chat.current.items.at(-1);
-        assert.strictEqual(last.text, "AI is off for this product. Ask your product owner to add a Claude key in Hodor settings.");
-        assert.strictEqual(last.action, "settings");
+        assert.strictEqual(api.chat.current.items.at(-1).text, "You have 2 events not implemented.");
+        api.chat.reset();
         await vscode.commands.executeCommand("hodor.pickProject", PROJECT);
         await until(() => api.tree.getEventByName("signup_completed"), "events");
       });
@@ -267,6 +271,39 @@ suite("Hodor extension", () => {
         api.chat.reset();
         await api.chat.applyAll();
         assert.strictEqual(fs.readFileSync(file(), "utf8"), ORIGINAL);
+      });
+
+      test("Gemini: the picker offers it, switching starts a new chat, and it implements the event", async () => {
+        await restore();
+        await api.chat.loadProviders();
+        assert.deepStrictEqual(api.chat.providers, { claude: true, gemini: true });
+        await api.chat.send("FAKE:chat hello");
+        assert.ok(api.chat.current.items.length > 0);
+        await api.chat.setProvider("gemini");
+        assert.strictEqual(api.chat.provider, "gemini");
+        assert.strictEqual(api.chat.current.items.length, 0, "switching starts a new chat");
+        await setAutoApply(true);
+        try {
+          await api.chat.send("FAKE:implement add the missing events");
+        } finally {
+          await setAutoApply(false);
+          await api.chat.setProvider("claude");
+        }
+        assert.match(fs.readFileSync(file(), "utf8"), /trackSignupCompleted\(\{ plan: "pro" \}\);/);
+        await api.tree.refresh();
+        assert.strictEqual(api.tree.getEventByName("signup_completed").status, "implemented");
+      });
+
+      test("a screenshot goes with the message", async () => {
+        await restore();
+        // A 1x1 JPEG, as the chat page sends after shrinking.
+        const jpeg = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==";
+        await api.chat.send("FAKE:chat what is this?", [jpeg]);
+        const user = api.chat.current.items.find((i: any) => i.kind === "user");
+        assert.deepStrictEqual(user.images, [jpeg]);
+        assert.strictEqual(api.chat.current.items.at(-1).text, "You have 2 events not implemented.");
+        await api.chat.send("", ["data:text/html;base64,PHNjcmlwdD4="]);
+        assert.strictEqual(api.chat.current.items.filter((i: any) => i.kind === "user").length, 1, "non-images are refused");
       });
 
       test("a command waits for Run, runs in the project with its output, then the agent carries on", async () => {

@@ -118,7 +118,8 @@ export const createGuard = (
       const resolved = resolve(input);
       if (!resolved.ok) return resolved;
       const parts = resolved.rel.split("/");
-      if (NO_WRITE_DIRS.includes(parts[0]) || NO_WRITE_FILES.includes(parts[parts.length - 1])) {
+      // Any level: an open folder can hold several repos, each with its own .github.
+      if (parts.some((p) => NO_WRITE_DIRS.includes(p)) || NO_WRITE_FILES.includes(parts[parts.length - 1])) {
         return { ok: false, reason: "files that run code can't be changed by the chat" };
       }
       return resolved;
@@ -127,6 +128,66 @@ export const createGuard = (
 };
 
 export type Guard = ReturnType<typeof createGuard>;
+
+export interface WorkspaceRoot {
+  /** The folder's name as the AI sees it (unique). */
+  name: string;
+  abs: string;
+  guard: Guard;
+}
+
+/**
+ * One guard for every folder open in the editor. With one folder, paths start
+ * inside it (as before). With several (a multi-root workspace), each path starts
+ * with the folder's name: "shop/src/app.ts".
+ */
+export const workspaceGuard = (roots: WorkspaceRoot[]) => {
+  const single = roots.length === 1;
+  const route = (input: string): { root: WorkspaceRoot; rest: string } | null => {
+    if (single) return { root: roots[0], rest: input };
+    const posix = input.replace(/\\/g, "/").replace(/^(\.\/)+/, "");
+    const [first, ...rest] = posix.split("/");
+    const root = roots.find((r) => r.name === first);
+    return root ? { root, rest: rest.join("/") } : null;
+  };
+  const prefixed = (root: WorkspaceRoot, r: Resolved): Resolved =>
+    !r.ok || single ? r : { ...r, rel: r.rel ? `${root.name}/${r.rel}` : root.name };
+  const check = (input: string, write: boolean): Resolved => {
+    if (!single && (input === "" || input === "." || input === "./")) return { ok: false, reason: "this is the list of open folders, not a folder" };
+    const target = route(input);
+    if (!target) return { ok: false, reason: `outside the project (open folders: ${roots.map((r) => r.name).join(", ")})` };
+    return prefixed(target.root, write ? target.root.guard.writable(target.rest) : target.root.guard.resolve(target.rest));
+  };
+  return {
+    roots,
+    single,
+    resolve: (input: string) => check(input, false),
+    writable: (input: string) => check(input, true),
+    /** The AI's path for a file on disk, or null when it is in no open folder. */
+    relOf(abs: string): string | null {
+      for (const root of roots) {
+        const rel = path.relative(root.abs, abs);
+        if (rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) continue;
+        const posix = rel.split(path.sep).join("/");
+        return single ? posix : posix ? `${root.name}/${posix}` : root.name;
+      }
+      return null;
+    },
+  };
+};
+
+export type WorkspaceGuard = ReturnType<typeof workspaceGuard>;
+
+/** Unique names for the open folders: their base names, numbered when two clash. */
+export const folderNames = (paths: string[]): string[] => {
+  const seen = new Map<string, number>();
+  return paths.map((p) => {
+    const base = path.basename(p) || "folder";
+    const n = (seen.get(base) || 0) + 1;
+    seen.set(base, n);
+    return n === 1 ? base : `${base}-${n}`;
+  });
+};
 
 /** Lines containing `query` (case-insensitive, literal), trimmed to 200 characters. */
 export const matchLines = (text: string, query: string, max: number): { line: number; text: string }[] => {

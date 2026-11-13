@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- Your own AI key, for every product and repo: Claude or Google Gemini (free Gemini keys work). Added once on Hodor's MCP / CLI page; pick the AI at the top of the chat.
+- Screenshots: paste, drop or attach up to 4 images per message.
+- Several repos at once: a folder of repos or a multi-root workspace. The chat knows each repo's language and runs commands in the right folder.
+- Never writes `.github`, `.vscode` and similar folders inside nested repos either.
+
 ## 0.3.0
 
 - The chat is now a coding agent: any coding task in the open project, with Hodor's tracking plan as its specialty.

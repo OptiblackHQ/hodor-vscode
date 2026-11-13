@@ -2,7 +2,6 @@
 // passes the developer's clicks back to it.
 
 import * as crypto from "crypto";
-import * as path from "path";
 import * as vscode from "vscode";
 import { ProjectChoice } from "../projects";
 import { Session } from "../session";
@@ -14,7 +13,8 @@ type Mode = "signedOut" | "noProject" | "noFolder" | "ready";
 
 type Message =
   | { type: "ready" | "stop" | "retry" | "continue" | "settings" | "applyAll" | "signIn" | "pickProject" }
-  | { type: "send"; text: string }
+  | { type: "send"; text: string; images?: string[] }
+  | { type: "setProvider"; provider: "claude" | "gemini" }
   | { type: "apply" | "skip" | "diff"; id: number }
   | { type: "runCommand" | "skipCommand"; id: string }
   | { type: "copy"; text: string }
@@ -31,9 +31,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   ) {
     this.disposables.push(
       chat.onDidChange(() => this.post()),
-      session.onDidChange(() => this.post()),
+      session.onDidChange(() => {
+        void chat.loadProviders();
+        this.post();
+      }),
       choice.onDidChange(() => {
         chat.reset();
+        void chat.loadProviders();
         this.post();
       }),
       vscode.workspace.onDidChangeWorkspaceFolders(() => {
@@ -54,7 +58,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     const state = this.chat.current;
     // Answers go to the page as parsed Markdown blocks; the page draws them as text.
     const items = state.items.map((item) => (item.kind === "assistant" ? { ...item, blocks: parseMarkdown(item.text) } : item));
-    void this.view?.webview.postMessage({ mode: this.mode(), state: { ...state, items } });
+    const ai = { provider: this.chat.provider, available: this.chat.providers };
+    void this.view?.webview.postMessage({ mode: this.mode(), state: { ...state, items }, ai });
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -69,9 +74,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     try {
       switch (message.type) {
         case "ready":
+          void this.chat.loadProviders();
           return this.post();
         case "send":
-          return await this.chat.send(message.text);
+          return await this.chat.send(message.text, Array.isArray(message.images) ? message.images : []);
+        case "setProvider":
+          return await this.chat.setProvider(message.provider === "gemini" ? "gemini" : "claude");
         case "stop":
           return this.chat.stop();
         case "retry":
@@ -100,19 +108,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
         case "pickProject":
           await vscode.commands.executeCommand("hodor.pickProject");
           return;
-        case "settings": {
-          const project = this.choice.project;
-          if (project) await vscode.env.openExternal(vscode.Uri.parse(`${this.session.client.serverUrl}/edit/organization/${project.id}`));
+        case "settings":
+          // Personal Claude / Gemini keys live on the MCP / CLI page.
+          await vscode.env.openExternal(vscode.Uri.parse(`${this.session.client.serverUrl}/mcp`));
           return;
-        }
         case "open": {
-          const folder = vscode.workspace.workspaceFolders?.[0];
-          if (!folder) return;
-          const uri = vscode.Uri.joinPath(folder.uri, message.path);
-          // The path came from the AI: only open files inside the project.
-          if (!uri.fsPath.startsWith(folder.uri.fsPath + path.sep)) return;
+          // The path came from the AI: only files inside the open folders, through the guard.
+          const abs = await this.chat.fileFor(String(message.path));
+          if (!abs) return;
           const line = Math.max(0, (message.line ?? 1) - 1);
-          await vscode.window.showTextDocument(uri, { selection: new vscode.Range(line, 0, line, 0), preview: true });
+          await vscode.window.showTextDocument(vscode.Uri.file(abs), { selection: new vscode.Range(line, 0, line, 0), preview: true });
           return;
         }
       }

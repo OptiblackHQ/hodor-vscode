@@ -175,6 +175,11 @@ export class HodorClient {
     return this.request("GET", `/api/cli/projects/${encodeURIComponent(projectId)}/code?language=${encodeURIComponent(language)}`);
   }
 
+  /** Which AIs the chat can use for this product (the person's own keys, or the product's Claude key). */
+  aiProviders(projectId: string): Promise<{ claude: boolean; gemini: boolean }> {
+    return this.request("GET", `/api/cli/projects/${encodeURIComponent(projectId)}/ai/providers`);
+  }
+
   async setStatus(projectId: string, eventId: string, status: Status, version: number): Promise<{ status: Status; version: number }> {
     const path = `/api/cli/projects/${encodeURIComponent(projectId)}/events/${encodeURIComponent(eventId)}/status`;
     const result = await this.request<{ status: Status; version: number }>("PATCH", path, { body: { status, version } });

@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { RepoTools } from "./repoTools";
 import { HodorError, Status, STATUSES } from "./api";
 import { statusLabel } from "./eventGroups";
 import { CodeActions, DetailsPanel } from "./detailsPanel";
@@ -145,7 +146,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<unknow
     context.subscriptions.push(
       vscode.commands.registerCommand("hodor._setTokenForTests", (token: string) => session.setToken(token))
     );
-    return { session, choice, tree, chat };
+    return { session, choice, tree, chat, repoTools: () => RepoTools.forWorkspace() };
   }
   return undefined;
 }
