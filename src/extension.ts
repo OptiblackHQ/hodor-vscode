@@ -8,6 +8,7 @@ import { ProjectChoice } from "./projects";
 import { Session } from "./session";
 import { changeStatus } from "./status";
 import { ChatController } from "./chat/controller";
+import { HistoryStore } from "./chat/history";
 import { ChatViewProvider } from "./chat/view";
 
 /** Context-menu commands get the tree node; others get the event id. */
@@ -130,13 +131,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<unknow
     )
   );
 
-  const chat = new ChatController(session, choice, tree);
+  // Saved chats live in this workspace's storage (or the global one without a workspace).
+  const historyDir = vscode.Uri.joinPath(context.storageUri ?? context.globalStorageUri, "chats").fsPath;
+  const chat = new ChatController(session, choice, tree, new HistoryStore(historyDir));
   const chatView = new ChatViewProvider(session, choice, chat);
   context.subscriptions.push(
     chat,
     chatView,
     vscode.window.registerWebviewViewProvider("hodor.chat", chatView, { webviewOptions: { retainContextWhenHidden: true } }),
-    vscode.commands.registerCommand("hodor.newChat", () => chat.reset())
+    vscode.commands.registerCommand("hodor.newChat", () => chat.newChat())
   );
 
   await choice.restore();

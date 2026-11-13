@@ -6,7 +6,7 @@ import { languageLabel } from "../snippet";
 export type Icon = "events" | "code" | "search" | "folder" | "read" | "edit" | "status" | "terminal" | "problems";
 /** A command Claude wants to run: waiting for Run/Skip, running, then done or skipped. */
 export type CommandState = "waiting" | "running" | "done" | "skipped";
-export type EditStatus = "proposed" | "applied" | "skipped" | "failed";
+export type EditStatus = "proposed" | "applied" | "skipped" | "failed" | "expired";
 
 export type Item =
   | { kind: "user"; text: string; images?: string[] }
@@ -33,9 +33,11 @@ export interface ChatState {
   running: boolean;
   canContinue: boolean;
   canRetry: boolean;
+  /** A plan-mode answer is ready: the chat offers "Approve plan". */
+  planReady: boolean;
 }
 
-export const initialState: ChatState = { items: [], running: false, canContinue: false, canRetry: false };
+export const initialState: ChatState = { items: [], running: false, canContinue: false, canRetry: false, planReady: false };
 
 export type Action =
   | { type: "user"; text: string; images?: string[] }
@@ -48,6 +50,8 @@ export type Action =
   | { type: "notice"; text: string }
   | { type: "network" }
   | { type: "running"; running: boolean }
+  | { type: "plan_ready"; ready: boolean }
+  | { type: "load"; items: Item[] }
   | { type: "reset" };
 
 const quote = (s: unknown) => `"${String(s ?? "").slice(0, 60)}"`;
@@ -74,7 +78,11 @@ export const toolStep = (name: string, input: Record<string, any>): { icon: Icon
     case "create_file":
       return { icon: "edit", label: `Creating ${input.path}: ${input.summary}`, path: input.path };
     case "run_command":
-      return { icon: "terminal", label: input.reason ? `Run command: ${input.reason}` : "Run command" };
+      return { icon: "terminal", label: `${input.background ? "Start" : "Run"}: ${input.reason || input.command}` };
+    case "command_output":
+      return { icon: "terminal", label: `Checking output of ${input.id}` };
+    case "stop_command":
+      return { icon: "terminal", label: `Stopping ${input.id}` };
     case "get_problems":
       return { icon: "problems", label: input.path ? `Checking problems in ${input.path}` : "Checking problems" };
     default:
@@ -99,6 +107,7 @@ export const reduce = (state: ChatState, action: Action): ChatState => {
         running: true,
         canContinue: false,
         canRetry: false,
+        planReady: false,
       };
     case "text": {
       const last = items[items.length - 1];
@@ -157,6 +166,10 @@ export const reduce = (state: ChatState, action: Action): ChatState => {
       return action.running
         ? { ...state, running: true, canContinue: false, canRetry: false }
         : { ...state, running: false };
+    case "plan_ready":
+      return { ...state, planReady: action.ready };
+    case "load":
+      return { ...initialState, items: action.items };
     case "reset":
       return initialState;
   }

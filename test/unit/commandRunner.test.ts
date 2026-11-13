@@ -43,3 +43,26 @@ describe("runCommand", () => {
     expect(r.stopped).toBe(true);
   });
 });
+
+import { BackgroundCommands } from "../../src/commandRunner";
+
+describe("BackgroundCommands", () => {
+  const node = JSON.stringify(process.execPath);
+  it("starts a long command, reads its output later, and stops it", async () => {
+    const bg = new BackgroundCommands();
+    const started = await bg.start(`${node} -e "console.log('ready on 3000'); setInterval(() => console.log('tick'), 100)"`, os.tmpdir(), 3000);
+    expect(started.running).toBe(true);
+    expect(started.output).toContain("ready on 3000");
+    const later = await bg.output(started.id, 300);
+    expect(later.output).toContain("tick");
+    await bg.stop(started.id);
+    expect((await bg.output(started.id)).running).toBe(false);
+    await expect(bg.output("bg99")).rejects.toThrow(/No background command/);
+  });
+  it("a command that ends reports its exit code", async () => {
+    const bg = new BackgroundCommands();
+    const started = await bg.start(`${node} -e "console.log('done'); process.exit(2)"`, os.tmpdir(), 3000);
+    const out = await bg.output(started.id, 2000);
+    expect([out.running, out.code]).toEqual([false, 2]);
+  });
+});

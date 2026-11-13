@@ -306,7 +306,85 @@ suite("Hodor extension", () => {
         assert.strictEqual(api.chat.current.items.filter((i: any) => i.kind === "user").length, 1, "non-images are refused");
       });
 
+      const setMode = (mode: string | undefined) =>
+        vscode.workspace.getConfiguration("hodor").update("ai.mode", mode, vscode.ConfigurationTarget.Global);
+
+      test("plan mode: nothing changes until the plan is approved, then the work is done", async () => {
+        await restore();
+        // Working mode "auto", then plan: approving returns to auto.
+        await api.chat.setMode("auto");
+        await api.chat.setMode("plan");
+        try {
+          await api.chat.send("FAKE:plan add signup tracking");
+          assert.strictEqual(fs.readFileSync(file(), "utf8"), ORIGINAL, "plan mode changes nothing");
+          assert.ok(steps().some((s: any) => s.detail === "Not in plan mode"), "the early edit was refused");
+          assert.strictEqual(api.chat.current.planReady, true);
+          await api.chat.approvePlan();
+          assert.strictEqual(api.chat.mode, "auto");
+          assert.match(fs.readFileSync(file(), "utf8"), /trackSignupCompleted\(\{ plan: "pro" \}\);/);
+          assert.strictEqual(api.chat.current.items.at(-1).text, "Done as planned.");
+          assert.strictEqual(api.chat.current.planReady, false);
+        } finally {
+          await setMode(undefined);
+        }
+      });
+
+      test("full access: commands run without a click; background commands start, report and stop", async () => {
+        await restore();
+        await setMode("full");
+        try {
+          await api.chat.send("FAKE:background check the server");
+          const start = steps().find((s: any) => s.command);
+          assert.strictEqual(start.commandState, "done");
+          assert.match(start.output, /server ready/);
+          assert.match(start.detail || "", /Running as bg\d+/);
+          assert.ok(steps().some((s: any) => /Checking output of bg\d+/.test(s.label) && s.status === "ok"));
+          assert.ok(steps().some((s: any) => /Stopping bg\d+/.test(s.label) && s.status === "ok"));
+          assert.strictEqual(api.chat.current.items.at(-1).text, "Server checked and stopped.");
+        } finally {
+          await setMode(undefined);
+        }
+      });
+
+      test("chats are saved; History reopens one and it continues", async () => {
+        await restore();
+        await api.chat.send("FAKE:chat remember this chat");
+        const id = api.chat.chatIdNow;
+        const saved = api.chat.listChats().find((c: any) => c.id === id);
+        assert.ok(saved, "the chat is in the history");
+        assert.strictEqual(saved.title, "FAKE:chat remember this chat");
+        api.chat.newChat();
+        assert.strictEqual(api.chat.current.items.length, 0);
+        assert.ok(api.chat.openChat(id));
+        assert.strictEqual(api.chat.current.items[0].text, "FAKE:chat remember this chat");
+        await api.chat.send("FAKE:chat and again");
+        assert.strictEqual(api.chat.current.items.filter((i: any) => i.kind === "user").length, 2);
+        api.chat.deleteChat(id);
+        assert.ok(!api.chat.listChats().some((c: any) => c.id === id));
+      });
+
+      test("the model picker: Claude and Gemini models; changing it starts a new chat and is used", async () => {
+        await restore();
+        await api.chat.loadProviders();
+        const ids = api.chat.models.map((m: any) => m.id);
+        assert.ok(ids.includes("claude-haiku-5-5") && ids.some((i: string) => i.startsWith("gemini")), ids.join(","));
+        await api.chat.send("FAKE:chat hi");
+        await api.chat.setModel("claude-haiku-5-5");
+        assert.strictEqual(api.chat.current.items.length, 0, "a new chat");
+        await api.chat.send("FAKE:chat which model?");
+        const log = process.env.FAKE_CLAUDE_LOG;
+        if (log) {
+          const last = JSON.parse(fs.readFileSync(log, "utf8").trim().split("\n").at(-1)!);
+          assert.strictEqual(last.model, "claude-haiku-5-5");
+          assert.match(JSON.stringify(last.messages.at(-1)), /\[Mode: ask before edits/);
+        }
+        await vscode.workspace.getConfiguration("hodor").update("ai.model", undefined, vscode.ConfigurationTarget.Global);
+        api.chat.newChat();
+      });
+
       test("a command waits for Run, runs in the project with its output, then the agent carries on", async () => {
+        // A third token for the rest: Hodor allows 120 requests a minute per token.
+        if (process.env.HODOR_TOKEN3) await vscode.commands.executeCommand("hodor._setTokenForTests", process.env.HODOR_TOKEN3);
         await restore();
         await setAutoApply(true); // commands never run on their own, even with auto-apply
         const sent = api.chat.send("FAKE:command check node");

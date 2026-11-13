@@ -219,6 +219,23 @@
           "default": "https://hodor.optiblack.com",
           "description": "Hodor server address. Change it only to test against a local Hodor."
         },
+        "hodor.ai.mode": {
+          "type": "string",
+          "enum": ["plan", "ask", "auto", "full"],
+          "enumDescriptions": [
+            "Plan: reads the code and writes a plan; changes nothing until you approve.",
+            "Ask before edits: every change waits for Apply, every command for Run.",
+            "Edit automatically: changes apply right away; commands still ask.",
+            "Full access: changes and commands run without asking."
+          ],
+          "default": "ask",
+          "description": "What the chat may do without asking (also in the chat's input box)."
+        },
+        "hodor.ai.model": {
+          "type": "string",
+          "default": "",
+          "description": "The AI model the chat uses (pick it in the chat's input box)."
+        },
         "hodor.ai.provider": {
           "type": "string",
           "enum": ["claude", "gemini"],
@@ -229,7 +246,8 @@
         "hodor.ai.autoApply": {
           "type": "boolean",
           "default": false,
-          "description": "Apply the chat's code changes right away instead of showing them for review first. Applied changes can be undone with Undo or git."
+          "description": "Apply the chat's code changes right away instead of showing them for review first. Applied changes can be undone with Undo or git.",
+          "deprecationMessage": "Use the chat's mode instead (hodor.ai.mode: Edit automatically)."
         }
       }
     }

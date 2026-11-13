@@ -85,7 +85,8 @@ describe("reduce", () => {
 
 describe("commands", () => {
   it("labels run_command and get_problems", () => {
-    expect(toolStep("run_command", { command: "npm test", reason: "run the tests" })).toEqual({ icon: "terminal", label: "Run command: run the tests" });
+    expect(toolStep("run_command", { command: "npm test", reason: "run the tests" })).toEqual({ icon: "terminal", label: "Run: run the tests" });
+    expect(toolStep("run_command", { command: "npm run dev", reason: "start the app", background: true }).label).toBe("Start: start the app");
     expect(toolStep("get_problems", {})).toEqual({ icon: "problems", label: "Checking problems" });
     expect(toolStep("get_problems", { path: "src" }).label).toBe("Checking problems in src");
   });

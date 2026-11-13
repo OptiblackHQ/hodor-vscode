@@ -1,6 +1,8 @@
 // Small client for Hodor's /api/cli and /api/cli-auth endpoints (the same
 // ones the Hodor CLI uses). No VS Code imports, so it is unit tested directly.
 
+import type { ProvidersInfo } from "./chat/models";
+
 export type Status = "not started" | "ready to implement" | "in progress" | "implemented";
 
 /** Workflow order, as Hodor lists them. */
@@ -176,7 +178,7 @@ export class HodorClient {
   }
 
   /** Which AIs the chat can use for this product (the person's own keys, or the product's Claude key). */
-  aiProviders(projectId: string): Promise<{ claude: boolean; gemini: boolean }> {
+  aiProviders(projectId: string): Promise<ProvidersInfo> {
     return this.request("GET", `/api/cli/projects/${encodeURIComponent(projectId)}/ai/providers`);
   }
 

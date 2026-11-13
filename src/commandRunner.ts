@@ -30,11 +30,11 @@ export const cleanOutput = (raw: string, max = MAX_OUTPUT): string => {
 };
 
 /** What Claude reads back. */
-export const describeResult = (r: CommandResult): string => {
+export const describeResult = (r: CommandResult, timeoutMs = COMMAND_TIMEOUT_MS): string => {
   const status = r.stopped
     ? "Stopped by the developer."
     : r.timedOut
-      ? `Stopped after ${COMMAND_TIMEOUT_MS / 1000} s (time limit).`
+      ? `Stopped after ${timeoutMs / 1000} s (time limit).`
       : `Exit code ${r.code}.`;
   return `${status}\n${r.output || "(no output)"}`;
 };
@@ -86,3 +86,69 @@ export const runCommand = (
     child.on("error", (error) => finish(null, `\n${error.message}`));
     child.on("close", (code) => finish(code));
   });
+
+export interface BackgroundInfo {
+  id: string;
+  command: string;
+  running: boolean;
+  code: number | null;
+}
+
+/**
+ * Commands that keep running (dev servers, watchers), started by the AI with
+ * run_command background: true. Output is kept (the latest part) so the AI can
+ * read it later; everything is stopped when the chat ends.
+ */
+export class BackgroundCommands {
+  private next = 1;
+  private readonly procs = new Map<string, { command: string; raw: string; code: number | null; running: boolean; abort: AbortController; done: Promise<void> }>();
+
+  /** Starts it and returns its id once there is first output (or after `firstWaitMs`). */
+  async start(command: string, cwd: string, firstWaitMs = 8000): Promise<{ id: string; output: string; running: boolean; code: number | null }> {
+    const id = `bg${this.next++}`;
+    const abort = new AbortController();
+    const entry = { command, raw: "", code: null as number | null, running: true, abort, done: Promise.resolve() };
+    let firstOutput: () => void = () => {};
+    const first = new Promise<void>((resolve) => (firstOutput = resolve));
+    entry.done = runCommand(command, cwd, {
+      signal: abort.signal,
+      timeoutMs: 24 * 60 * 60 * 1000,
+      onOutput: (all) => {
+        entry.raw = all;
+        firstOutput();
+      },
+    }).then((r) => {
+      entry.raw = r.output;
+      entry.code = r.code;
+      entry.running = false;
+      firstOutput();
+    });
+    this.procs.set(id, entry);
+    // Give it a moment to print its first lines (e.g. "ready on :3000").
+    await Promise.race([first.then(() => new Promise((r) => setTimeout(r, 1500))), new Promise((r) => setTimeout(r, firstWaitMs))]);
+    return { id, output: entry.raw, running: entry.running, code: entry.code };
+  }
+
+  /** The output so far, after waiting up to `waitMs` for it to finish or print more. */
+  async output(id: string, waitMs = 0): Promise<{ output: string; running: boolean; code: number | null }> {
+    const entry = this.procs.get(id);
+    if (!entry) throw new Error(`No background command ${id}.`);
+    if (waitMs > 0 && entry.running) await Promise.race([entry.done, new Promise((r) => setTimeout(r, waitMs))]);
+    return { output: entry.raw, running: entry.running, code: entry.code };
+  }
+
+  async stop(id: string): Promise<void> {
+    const entry = this.procs.get(id);
+    if (!entry) throw new Error(`No background command ${id}.`);
+    entry.abort.abort();
+    await entry.done;
+  }
+
+  list(): BackgroundInfo[] {
+    return [...this.procs.entries()].map(([id, e]) => ({ id, command: e.command, running: e.running, code: e.code }));
+  }
+
+  stopAll(): void {
+    for (const e of this.procs.values()) e.abort.abort();
+  }
+}

@@ -11,7 +11,7 @@ export type Provider = "claude" | "gemini";
 
 export interface PendingTool {
   id: string;
-  name: "search_code" | "list_files" | "read_file" | "propose_edit" | "create_file" | "run_command" | "get_problems";
+  name: string;
   input: Record<string, any>;
 }
 
@@ -50,7 +50,7 @@ export async function* aiTurn(
   projectId: string,
   messages: ChatMessage[],
   signal?: AbortSignal,
-  options: { provider?: Provider; workspace?: string } = {}
+  options: { provider?: Provider; model?: string; workspace?: string } = {}
 ): AsyncIterable<TurnEvent> {
   const res = await client.streamPost(`/api/cli/projects/${encodeURIComponent(projectId)}/ai/turn`, { messages, ...options }, signal);
   for await (const event of parseNdjson(bodyChunks(res))) yield event as TurnEvent;

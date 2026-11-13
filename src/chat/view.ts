@@ -8,11 +8,18 @@ import { Session } from "../session";
 import { ChatController } from "./controller";
 import { renderChatPage } from "./html";
 import { parseMarkdown } from "../markdown";
+import { titleFor } from "./history";
+import { isMode, MODES } from "./modes";
+import { shortLabel } from "./models";
 
 type Mode = "signedOut" | "noProject" | "noFolder" | "ready";
 
 type Message =
-  | { type: "ready" | "stop" | "retry" | "continue" | "settings" | "applyAll" | "signIn" | "pickProject" }
+  | { type: "ready" | "stop" | "retry" | "continue" | "settings" | "applyAll" | "signIn" | "pickProject" | "newChat" | "listChats" | "approvePlan" }
+  | { type: "openChat" | "deleteChat"; id: string }
+  | { type: "setMode"; mode: string }
+  | { type: "setModel"; model: string }
+  | { type: "link"; href: string }
   | { type: "send"; text: string; images?: string[] }
   | { type: "setProvider"; provider: "claude" | "gemini" }
   | { type: "apply" | "skip" | "diff"; id: number }
@@ -31,6 +38,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
   ) {
     this.disposables.push(
       chat.onDidChange(() => this.post()),
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration("hodor.ai")) this.post();
+      }),
       session.onDidChange(() => {
         void chat.loadProviders();
         this.post();
@@ -58,8 +68,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
     const state = this.chat.current;
     // Answers go to the page as parsed Markdown blocks; the page draws them as text.
     const items = state.items.map((item) => (item.kind === "assistant" ? { ...item, blocks: parseMarkdown(item.text) } : item));
-    const ai = { provider: this.chat.provider, available: this.chat.providers };
-    void this.view?.webview.postMessage({ mode: this.mode(), state: { ...state, items }, ai });
+    const model = this.chat.model;
+    const ai = {
+      provider: this.chat.provider,
+      available: this.chat.providers,
+      model: model?.id,
+      models: this.chat.models.map((m) => ({ ...m, short: shortLabel(m) })),
+      mode: this.chat.mode,
+      modes: MODES,
+    };
+    const history = { chats: this.chat.listChats(), current: this.chat.chatIdNow };
+    const title = state.items.length ? titleFor(state.items) : "New chat";
+    void this.view?.webview.postMessage({ mode: this.mode(), state: { ...state, items }, ai, history, title });
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -80,6 +100,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           return await this.chat.send(message.text, Array.isArray(message.images) ? message.images : []);
         case "setProvider":
           return await this.chat.setProvider(message.provider === "gemini" ? "gemini" : "claude");
+        case "setModel":
+          return await this.chat.setModel(String(message.model));
+        case "setMode":
+          if (isMode(message.mode)) await this.chat.setMode(message.mode);
+          return this.post();
+        case "approvePlan":
+          return await this.chat.approvePlan();
+        case "newChat":
+          return this.chat.newChat();
+        case "listChats":
+          return this.post();
+        case "openChat":
+          if (!this.chat.openChat(String(message.id))) vscode.window.showWarningMessage("Hodor: finish or stop the current reply first.");
+          return this.post();
+        case "deleteChat":
+          this.chat.deleteChat(String(message.id));
+          return this.post();
+        case "link": {
+          // Links from answers: web pages only.
+          const href = String(message.href);
+          if (/^https?:\/\//.test(href)) await vscode.env.openExternal(vscode.Uri.parse(href));
+          return;
+        }
         case "stop":
           return this.chat.stop();
         case "retry":
