@@ -48,13 +48,23 @@ It decides where each call goes itself, and its summary says which place it chos
 
 **Events that aren't in Hodor.** Paste them (names and properties, from a sheet or a ticket) and say "implement these". The chat adds them to your code in the style of your existing tracking code, using the names exactly as given. It doesn't change Hodor; its summary lists which events aren't in Hodor's plan.
 
-**Commands.** When it wants to run something (install the analytics SDK, build, run the tests), the command shows with **Run** and **Skip**. Nothing runs until you click **Run**, even with auto-apply on. The output shows live, and a command stops after 2 minutes. It also reads the errors and warnings in VS Code's Problems panel to check its work.
+**The input box.** Type, paste screenshots, then pick:
+- **Mode** (what the AI may do without asking):
+  - **Plan:** it reads the code and writes a plan, changes nothing. Click **Approve plan** to start.
+  - **Ask before edits** (default): every change waits for **Apply**, every command for **Run**.
+  - **Edit automatically:** changes apply right away; commands still ask.
+  - **Full access:** changes and commands run without asking (it asks you to confirm once). Protected folders and private files stay blocked.
+- **Model:** Claude Opus, Sonnet or Haiku, or the Gemini models your key allows. Changing it starts a new chat.
 
-**Copying.** Code blocks in answers have a **Copy** button, and every answer has **Copy answer**.
+Enter sends, Shift+Enter adds a line; the round button turns into **Stop** while it works. On a Mac, press **Fn** twice to dictate.
 
-**Following along.** Every step shows as it happens. Click a file in a step to open it, and use **View change** to see an edit side by side.
+**History.** Every chat is saved for this project. **History** lists them; open one to read or continue it, or delete it. Changes proposed in an earlier session can't be applied any more.
 
-**Review or auto-apply.** By default every change waits for **Apply** or **Skip** (or **Apply all**). Turn on `hodor.ai.autoApply` to apply changes right away; undo still works, and so does git.
+**Commands.** It installs packages, builds, runs tests, linters and type checks to check its work, up to 10 minutes each, with live output. It can start a dev server in the background, read its output and stop it. Each command shows with **Run** and **Skip** unless you chose Full access. It also reads the errors and warnings in VS Code's Problems panel.
+
+**Copying.** Code blocks in answers have a **Copy** button, and so does every answer.
+
+**Following along.** Every step shows as it happens; runs of file reads and searches fold into one line you can open. Click a file to open it, and use **View change** to see an edit side by side. Undo and git work as usual.
 
 **Stop, Retry, Continue.**
 - **Stop** ends the run, and changes already applied stay.
@@ -64,7 +74,7 @@ It decides where each call goes itself, and its summary says which place it chos
 **What the AI can and can't touch:**
 - **Reads:** only files inside the open project folder. It never sees `.env` files, keys and certificates, `node_modules`, build folders, or anything your `.gitignore` hides.
 - **Changes:** it can't delete files. An edit is refused if the file changed after the AI read it.
-- **Commands:** only the ones you click **Run** on. They run in the project folder with your permissions, so read each one first.
+- **Commands:** only the ones you click **Run** on (or all, in Full access). They run in the project folder with your permissions, so read each one first.
 
 **Screenshots.** Paste one (⌘V / Ctrl+V), drop it on the message box, or click **+ Image**; up to 4 per message. They are shrunk before sending. A chat holds a limited number of screenshots; start a new chat for more.
 
@@ -73,7 +83,7 @@ It decides where each call goes itself, and its summary says which place it chos
 **AI keys.** Add your own key once on Hodor's **MCP / CLI** page, under **AI keys for the editor chat**. It works for every product and repo you open.
 - **Claude** (console.anthropic.com): paid per use, the best results.
 - **Google Gemini** (aistudio.google.com): free keys work, with daily limits. Pick the model there; Flash-Lite has the highest free limits.
-- With both, pick one at the top of the chat. Switching starts a new chat.
+- Pick the model in the input box. Your spend (Claude in dollars, Gemini in tokens) and an optional monthly Claude budget are on the same Hodor page.
 - A product owner can also add a Claude key to a product; people without their own key then use it.
 - The extension never sees a key: Hodor's server calls the AI with it. Code the AI reads is sent to Hodor and then to Anthropic or Google under that key. On Google's free plan, Google may use it to improve its models.
 - Without a key, the chat says so and everything else keeps working.
@@ -83,8 +93,8 @@ It decides where each call goes itself, and its summary says which place it chos
 | Setting | Default | |
 |---|---|---|
 | `hodor.serverUrl` | `https://hodor.optiblack.com` | Change only to test against a local Hodor. |
-| `hodor.ai.autoApply` | `false` | Apply the chat's changes right away instead of waiting for **Apply**. |
-| `hodor.ai.provider` | `claude` | The AI the chat uses when you have keys for both (`claude` or `gemini`). |
+| `hodor.ai.mode` | `ask` | `plan`, `ask`, `auto` or `full` (also in the input box). |
+| `hodor.ai.model` | | The model (also in the input box). |
 
 ## Develop
 

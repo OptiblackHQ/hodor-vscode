@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- New chat design, like Claude Code: input box with attach, mode, model and a round send / stop button; reads and searches fold into one line; tables, links, quotes and nested lists in answers.
+- History: every chat is saved per project; reopen to continue, or delete.
+- Modes: Plan (approve the plan to start), Ask before edits, Edit automatically, Full access.
+- Model picker: Claude Opus, Sonnet, Haiku, and the Gemini models your key allows.
+- Commands up to 10 minutes; dev servers in the background (start, read output, stop).
+- Spend in dollars and a monthly Claude budget on Hodor's MCP / CLI page.
+
 ## 0.4.0
 
 - Your own AI key, for every product and repo: Claude or Google Gemini (free Gemini keys work). Added once on Hodor's MCP / CLI page; pick the AI at the top of the chat.
